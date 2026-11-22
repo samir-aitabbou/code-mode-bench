@@ -129,11 +129,37 @@
   `axteam/gemma-4-26B-A4B-AWQ-4bit`, `RedHatAI/Qwen3.8-27B-INT4`. Disque : 256G libres (sur 1008G),
   en baisse normale après les téléchargements.
 
+- **Rebondissement sur la version de vLLM — `0.24.0` ne peut en réalité pas tourner ici :**
+  le premier test de fumée (gpt-oss-20b) a planté au lancement de `vllm serve` avec
+  `ImportError: libcudart.so.13: cannot open shared object file`. Investigation :
+  - `~/venv-vllm` (0.17.1, existant, jamais testé en vrai jusqu'ici) s'importe sans problème —
+    pas le même souci.
+  - vLLM 0.19.0 installé **sans aucun forçage** (`pip install vllm==0.19.0`) choisit
+    naturellement `torch==2.10.0+cu128` : import OK, `torch.cuda.is_available()==True`, **et un
+    vrai produit matriciel sur GPU fonctionne**.
+  - vLLM 0.24.0 installé **sans aucun forçage** choisit naturellement `torch==2.11.0+cu130` :
+    `import vllm` réussit (torch cu130 embarque son propre `libcudart.so.13`), mais
+    `torch.cuda.is_available()` est **False** (driver trop ancien pour CUDA 13). Le wheel
+    vLLM 0.24.0 embarque une extension native (`vllm._C_stable_libtorch`) liée à CUDA 13,
+    **indépendamment de la version de torch associée** — forcer torch en cu128 à la place
+    casse l'import (`ImportError` direct, pas de `libcudart.so.13` nulle part) ; le laisser en
+    cu130 permet l'import mais le GPU reste inutilisable (driver trop ancien). Dans les deux
+    cas, 0.24.0 est **inutilisable sur ce driver**.
+  - **Conclusion : `~/code-mode-bench/.venv-vllm` recréé avec vLLM 0.19.0 pur** (pas de
+    `--torch-backend`, pas de bricolage), la version plancher annoncée par la fiche AWQ de
+    Gemma 4. `configs/models.yaml` et ce fichier mis à jour. Risque résiduel à vérifier
+    empiriquement au smoke test de Gemma 4 : le bug de chargement AWQ connu
+    (vllm-project/vllm#40286) a été signalé sur 0.19.1 (un patch au-dessus de notre 0.19.0) —
+    pas confirmé si 0.19.0 l'a aussi.
+  - Les 3 modèles téléchargés précédemment restent valides (le téléchargement HF ne dépend pas
+    de la version de vLLM).
+
 ## Prochaine étape
 
-1. Test de fumée gpt-oss-20b (déjà en cache), puis les 3 autres (dont test empirique
-   qwen3_coder vs qwen3_xml pour Qwen3.8-27B, vérification du chargement AWQ de Gemma 4, et
-   question ouverte sur `--chat-template` pour Gemma 4 — voir `configs/models.yaml`).
+1. Test de fumée gpt-oss-20b (déjà en cache) avec vLLM 0.19.0, puis les 3 autres (dont test
+   empirique qwen3_coder vs qwen3_xml pour Qwen3.8-27B, vérification du chargement AWQ de
+   Gemma 4 avec 0.19.0 précisément, et question ouverte sur `--chat-template` pour Gemma 4 —
+   voir `configs/models.yaml`).
 2. **⏸ Présenter à Samir le tableau de compatibilité final + résultats du test de fumée avant
    le pilote.**
 

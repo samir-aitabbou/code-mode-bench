@@ -6,19 +6,27 @@
 # the verification notes and links.
 #
 # Serving venv:
-#   - models 1-4 (this file): ~/code-mode-bench/.venv-vllm, vLLM 0.24.0,
-#     torch 2.11.0+cu128, installed with `uv pip install vllm==0.24.0
-#     --torch-backend=cu128`, same venv and version for all 4 models so
-#     the comparison is fair. torch.cuda.is_available() verified True
-#     before any model download (see PROGRESS.md).
-#   - Why 0.24.0 and not the latest (0.34.0) or the 0.32.0 the Gemma 4
-#     AWQ card reports testing against: vLLM >= 0.27.0 pins
-#     torch==2.13.0, and >= 0.25.0 additionally requires
-#     torchcodec>=0.14 -- neither has a cu128 wheel (the VM's driver
-#     only supports CUDA 12.8, confirmed via nvidia-smi). vLLM 0.24.0 is
-#     the newest release still pinning torch==2.11.0 with no
-#     torchcodec constraint, and both have cu128 wheels. It satisfies
-#     the >=0.19.0 floor for Gemma 4 MoE support.
+#   - models 1-4 (this file): ~/code-mode-bench/.venv-vllm, vLLM 0.19.0,
+#     installed plainly (`pip install vllm==0.19.0`, no override needed
+#     -- its default dependency resolution already picks torch
+#     2.10.0+cu128), same venv and version for all 4 models so the
+#     comparison is fair. torch.cuda.is_available() verified True, and
+#     a real CUDA matmul run, before any model download (see
+#     PROGRESS.md).
+#   - Why 0.19.0 (the stated floor for Gemma 4 MoE support) and not
+#     anything newer: this VM's driver (570.124.06) tops out at CUDA
+#     12.8 (confirmed via nvidia-smi). vLLM >= 0.25.0 requires
+#     torchcodec>=0.14, which has no cu128 wheel. More fundamentally,
+#     vLLM 0.24.0's wheel bundles a native extension
+#     (`vllm._C_stable_libtorch`) that is linked against CUDA 13
+#     regardless of which torch build it's paired with: with the
+#     default torch (2.11.0+cu130), `import vllm` succeeds but
+#     torch.cuda.is_available() is False (driver too old for CUDA 13);
+#     forcing a cu128 torch build instead makes `import vllm` itself
+#     fail with "ImportError: libcudart.so.13: cannot open shared
+#     object file". vLLM 0.19.0 predates that bundled extension and
+#     has neither problem -- verified empirically with both import and
+#     a real on-GPU tensor op.
 #   - Samir's pre-existing ~/venv-vllm (vLLM 0.17.1) is NOT used by this
 #     project and is never modified.
 
@@ -79,11 +87,12 @@ models:
       The model card states the Gemma 4 MoE architecture needs
       vLLM >= 0.19.0 -- NOT supported by Samir's pre-existing
       ~/venv-vllm (0.17.1). This is why models 1-4 are all served from
-      the separate ~/code-mode-bench/.venv-vllm (vLLM 0.24.0, see the
-      top-of-file note on why 0.24.0 rather than 0.32.0). A known AWQ
-      loading bug (vllm-project/vllm#40286) was reported against 0.19.1
-      and fixed by PR #40708; not yet confirmed whether that fix is in
-      0.24.0 -- checked empirically at this model's smoke test. Official vLLM
+      the separate ~/code-mode-bench/.venv-vllm (vLLM 0.19.0 exactly,
+      the stated floor -- see the top-of-file note on why not a newer
+      version). A known AWQ loading bug (vllm-project/vllm#40286) was
+      reported against 0.19.1 (one patch release above ours) and fixed
+      by PR #40708; not yet confirmed whether 0.19.0 has it -- checked
+      empirically at this model's smoke test. Official vLLM
       recipe tool-calling example: --enable-auto-tool-choice
       --tool-call-parser gemma4 --reasoning-parser gemma4
       --chat-template examples/tool_chat_template_gemma4.jinja -- that
