@@ -126,7 +126,11 @@ models:
     enable_auto_tool_choice: true
     trust_remote_code: true
     max_model_len: 16384
-    gpu_memory_utilization: 0.90  # 0.85 left KV cache 30 MB short (0.64 vs 0.67 GiB needed) at smoke test
+    # 0.85 left KV cache 30 MB short (0.64 vs 0.67 GiB needed); 0.90 overshot the
+    # GPU's actual usable memory (20.84 GiB, not the raw 23.76 GiB -- this vGPU
+    # profile reserves ~2.9 GiB nvidia-smi doesn't show as "used"). 0.87 fits
+    # comfortably inside the real ceiling with enough KV cache headroom.
+    gpu_memory_utilization: 0.87
     notes: >
       Dense 27B, hybrid attention (16 full-attention + 48 Gated
       DeltaNet layers), AWQ-smoothed W4A16 GPTQ scheme (compressed-tensors),
