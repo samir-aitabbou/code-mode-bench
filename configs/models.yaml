@@ -30,6 +30,18 @@
 #   - Samir's pre-existing ~/venv-vllm (vLLM 0.17.1) is NOT used by this
 #     project and is never modified.
 
+# Gemma 4 26B-A4B (axteam/gemma-4-26B-A4B-AWQ-4bit) was DROPPED on 2026-11-22,
+# with Samir's explicit approval, after a confirmed hard dependency
+# incompatibility: the Gemma 4 MoE architecture requires transformers>=5.0,
+# but every vLLM version that can actually run on this VM's GPU (driver
+# capped at CUDA 12.8) pins transformers<5 (see the vLLM-version
+# investigation above and PROGRESS.md for the full empirical trail --
+# vLLM >=0.24.0 ships transformers>=5 but also a native extension linked
+# against CUDA 13, which this driver cannot use either way). No
+# pip-installable combination of vLLM + transformers satisfies both
+# constraints on this hardware. The benchmark proceeds with the 3 remaining
+# models. See PROGRESS.md and REPORT.md (Deviations from plan) for details.
+
 models:
   - id: gpt-oss-20b
     order: 1
@@ -78,45 +90,12 @@ models:
       base repo instead (Qwen/Qwen3.5-9B, tokenizer_class=Qwen2Tokenizer)
       via --tokenizer -- the quantized repo's weights are unaffected.
 
-  - id: gemma-4-26b-a4b
-    order: 3
-    repo_id: axteam/gemma-4-26B-A4B-AWQ-4bit
-    base_repo_id: google/gemma-4-26B-A4B-it
-    quantization: awq-4bit
-    served_model_name: gemma-4-26b-a4b
-    tool_call_parser: gemma4
-    reasoning_parser: gemma4
-    enable_auto_tool_choice: true
-    max_model_len: 16384
-    gpu_memory_utilization: 0.85
-    vllm_extra_args: ["--quantization", "awq_marlin"]
-    notes: >
-      MoE, 25.2B total / 3.8B active params, AWQ 4-bit, ~17.6 GB on disk.
-      The model card states the Gemma 4 MoE architecture needs
-      vLLM >= 0.19.0 -- NOT supported by Samir's pre-existing
-      ~/venv-vllm (0.17.1). This is why models 1-4 are all served from
-      the separate ~/code-mode-bench/.venv-vllm (vLLM 0.19.0 exactly,
-      the stated floor -- see the top-of-file note on why not a newer
-      version). A known AWQ loading bug (vllm-project/vllm#40286) was
-      reported against 0.19.1 (one patch release above ours) and fixed
-      by PR #40708; not yet confirmed whether 0.19.0 has it -- checked
-      empirically at this model's smoke test. Official vLLM
-      recipe tool-calling example: --enable-auto-tool-choice
-      --tool-call-parser gemma4 --reasoning-parser gemma4
-      --chat-template examples/tool_chat_template_gemma4.jinja -- that
-      path is inside the vLLM source tree, which a pip install may not
-      ship; NOT yet added to vllm_extra_args below. To check/resolve at
-      this model's smoke test: see if vLLM's default chat template
-      already supports tool calling (try without --chat-template
-      first), else locate the file (pip package data or fetch from the
-      vllm-project/vllm GitHub repo at the installed version's tag) and
-      add it here.
-      BF16 recipe recommends --max-model-len 32768
-      --gpu-memory-utilization 0.90 on an 80GB GPU; max_model_len is
-      reduced here to fit a 24GB GPU with the 4-bit weights.
+  # gemma-4-26b-a4b: DROPPED on 2026-11-22 (see note above the `models:`
+  # key). google/gemma-4 MoE architecture needs transformers>=5.0, which
+  # conflicts with every vLLM version that can run on this VM's GPU.
 
   - id: qwen3.8-27b
-    order: 4
+    order: 3
     repo_id: RedHatAI/Qwen3.8-27B-INT4
     base_repo_id: Qwen/Qwen3.8-27B
     quantization: int4-awq-smoothed-w4a16

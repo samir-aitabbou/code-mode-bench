@@ -27,4 +27,7 @@ tool_bloat_variant:
   tool_count_variant: 60 # 12 real tools + 48 noise tools, see src/cmbench/mcp_server/extra_tools.py
 
 # Total trials per model: 6*2*10 (main) + 2*2*5 (tool bloat) = 140
-# Total trials, 4 models: 560 (matches PLAN.md §6)
+# Total trials, 3 models: 420. PLAN.md §6 states 560 for 4 models; Gemma 4
+# was dropped on 2026-11-22 (hard transformers>=5.0 / CUDA-12.8 driver
+# conflict, see configs/models.yaml and PROGRESS.md) -- documented as a
+# deviation from plan in REPORT.md.

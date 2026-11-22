@@ -154,14 +154,54 @@
   - Les 3 modèles téléchargés précédemment restent valides (le téléchargement HF ne dépend pas
     de la version de vLLM).
 
+- **Ajustements des flags `vllm serve` (universels, `cmbench serve-cmd`)** : `--max-num-seqs 16`
+  (le harness n'envoie jamais de requêtes concurrentes ; le défaut 256 sur-réserve la VRAM pour
+  un warm-up jamais utile — a causé un OOM CUDA au démarrage de gpt-oss-20b) et `--enforce-eager`
+  (la capture de CUDA graphs optimise pour un débit concurrent dont on n'a pas besoin ici — a
+  aussi causé un OOM, 28 MiB manquants sur 23,76 GiB).
+
+- **Test de fumée gpt-oss-20b : ✅ OK** (classic + codemode, T1), après les deux fixes ci-dessus.
+
+- **Test de fumée Qwen3.5-9B-FP8-dynamic : ✅ OK** après un fix tokenizer. Premier essai :
+  `ValueError: Tokenizer class TokenizersBackend does not exist` même avec `--trust-remote-code`
+  (ce n'est pas du code custom, juste un nom de classe que transformers<5 ne connaît pas — le
+  flag ne peut rien y faire). Cause : le `tokenizer_config.json` du dépôt FP8 (`RedHatAI/...`)
+  spécifie `tokenizer_class: TokenizersBackend`. Contournement : `--tokenizer Qwen/Qwen3.5-9B`
+  (dépôt de base, `Qwen2Tokenizer` standard) tout en chargeant les poids quantifiés du dépôt
+  RedHatAI — sans impact sur les poids. Noté dans `configs/models.yaml`.
+
+- **Qwen3.8-27B-INT4 : tuning de `gpu_memory_utilization`.** 0.85 → KV cache 30 Mo trop court
+  (0,64 Gio dispo vs 0,67 Gio requis). 0.90 → erreur vLLM indiquant seulement 20,84 Gio de
+  mémoire réellement libre au démarrage sur les 23,76 Gio bruts : **ce profil de vGPU
+  (L40S-24Q) réserve ~2,9 Gio que `nvidia-smi` n'affiche jamais comme "used"** par aucun
+  processus — à retenir pour la suite, le vrai plafond utilisable n'est pas
+  `total - nvidia-smi"used"`. Réglé à **0.87** (tient sous le vrai plafond avec marge pour le
+  KV cache). Confirmé par démarrage réussi du serveur vLLM.
+
+- **Décision de Samir (2026-11-22) : Gemma 4 26B-A4B est abandonné.** Le test de fumée a
+  échoué avec une erreur pydantic définitive : `model type 'gemma4' but Transformers does not
+  recognize this architecture`. Vérifié sur PyPI : transformers 4.57.6 est la toute dernière
+  version 4.x avant le saut direct à 5.0.0 — l'architecture Gemma 4 MoE nécessite
+  `transformers>=5.0`, que vLLM 0.19.0 (et toute version de vLLM compatible avec le driver
+  CUDA 12.8 de cette VM) épingle à `<5`. **Ce n'est pas un problème de configuration mais un
+  conflit de dépendances dur** : aucune combinaison pip-installable de vLLM + transformers ne
+  peut à la fois reconnaître l'architecture Gemma 4 ET utiliser ce GPU (les versions de vLLM
+  qui embarquent transformers≥5, ≥0.24.0, embarquent aussi une extension native liée à CUDA 13,
+  inutilisable sur ce driver — voir l'historique plus haut). Présenté à Samir avec 3 options
+  (abandonner / remplacer / tenter l'image Docker officielle vLLM) ; **Samir a choisi
+  d'abandonner Gemma 4** et de continuer le benchmark avec les 3 modèles restants.
+  `configs/models.yaml` et `configs/experiment.yaml` mis à jour (3 modèles, 420 essais au
+  total au lieu de 560). À documenter dans `REPORT.md` §8 (Deviations from plan).
+
 ## Prochaine étape
 
-1. Test de fumée gpt-oss-20b (déjà en cache) avec vLLM 0.19.0, puis les 3 autres (dont test
-   empirique qwen3_coder vs qwen3_xml pour Qwen3.8-27B, vérification du chargement AWQ de
-   Gemma 4 avec 0.19.0 précisément, et question ouverte sur `--chat-template` pour Gemma 4 —
-   voir `configs/models.yaml`).
-2. **⏸ Présenter à Samir le tableau de compatibilité final + résultats du test de fumée avant
-   le pilote.**
+1. **En cours** : test de fumée Qwen3.8-27B-INT4 (serveur démarré, `gpu_memory_utilization=0.87`) —
+   tester `qwen3_coder` (configuré actuellement) puis, s'il échoue sur le parsing des tool
+   calls, basculer sur `qwen3_xml` et retester ; noter le gagnant dans `configs/models.yaml`
+   et ici.
+2. Arrêter le serveur vLLM Qwen3.8-27B, vérifier que la VRAM se libère (procédure CLAUDE.md §4).
+3. **⏸ Présenter à Samir le tableau de compatibilité final (3 modèles OK, Gemma 4 abandonné)
+   + résultats des tests de fumée avant le pilote.**
 
 ## Commandes utiles
 
