@@ -124,14 +124,17 @@
   none` puis repli sans isolation (avec avertissement loggé) si aucun des deux ne marche.
   Testé de bout en bout sur la VM (8 tests sandbox/codemode passent avec Docker actif).
 
+- **Les 3 modèles manquants sont téléchargés** sur la VM (`scripts/download_model.py`, bande
+  passante excellente : les 3 en moins d'une minute cumulée) : `RedHatAI/Qwen3.5-9B-FP8-dynamic`,
+  `axteam/gemma-4-26B-A4B-AWQ-4bit`, `RedHatAI/Qwen3.8-27B-INT4`. Disque : 256G libres (sur 1008G),
+  en baisse normale après les téléchargements.
+
 ## Prochaine étape
 
-1. Télécharger les 3 modèles manquants (Qwen3.5-9B FP8, Gemma 4 AWQ, Qwen3.8-27B INT4) sur la
-   VM.
-2. Test de fumée gpt-oss-20b (déjà en cache), puis les 3 autres (dont test empirique
+1. Test de fumée gpt-oss-20b (déjà en cache), puis les 3 autres (dont test empirique
    qwen3_coder vs qwen3_xml pour Qwen3.8-27B, vérification du chargement AWQ de Gemma 4, et
    question ouverte sur `--chat-template` pour Gemma 4 — voir `configs/models.yaml`).
-3. **⏸ Présenter à Samir le tableau de compatibilité final + résultats du test de fumée avant
+2. **⏸ Présenter à Samir le tableau de compatibilité final + résultats du test de fumée avant
    le pilote.**
 
 ## Commandes utiles
