@@ -126,7 +126,7 @@ models:
     enable_auto_tool_choice: true
     trust_remote_code: true
     max_model_len: 16384
-    gpu_memory_utilization: 0.85
+    gpu_memory_utilization: 0.90  # 0.85 left KV cache 30 MB short (0.64 vs 0.67 GiB needed) at smoke test
     notes: >
       Dense 27B, hybrid attention (16 full-attention + 48 Gated
       DeltaNet layers), AWQ-smoothed W4A16 GPTQ scheme (compressed-tensors),
