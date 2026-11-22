@@ -24,6 +24,8 @@ venv/
 results/run_status.json
 results/run.log
 results/DONE
+results/vllm.pid
+results/vllm_*.log
 
 .DS_Store
 Thumbs.db

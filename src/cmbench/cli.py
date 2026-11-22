@@ -126,6 +126,7 @@ def smoke(
     tasks = load_tasks()
     working_dir.mkdir(parents=True, exist_ok=True)
 
+    all_ok = True
     for mode in ("classic", "codemode"):
         spec = TrialSpec(model, mode, "T1", 12, 0)
         record, _transcript = run_trial(
@@ -141,6 +142,11 @@ def smoke(
         typer.echo(f"[smoke] {model} {mode} T1: {status}")
         if not record.valid:
             typer.echo(f"[smoke] WARNING: trial marked invalid ({record.detail})")
+        if not record.success or not record.valid:
+            all_ok = False
+
+    if not all_ok:
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -161,6 +167,52 @@ def bench(
     working_dir.mkdir(parents=True, exist_ok=True)
 
     run_all_trials_for_model(model, provider, experiment, template_db, working_dir, writer)
+
+
+@app.command(name="serve-cmd")
+def serve_cmd(
+    model: str = typer.Option(..., help="model id from configs/models.yaml"),
+    port: int = typer.Option(8000),
+    models_config: Path = typer.Option(DEFAULT_MODELS_CONFIG),
+) -> None:
+    """Print the `vllm serve ...` command for one model, built from
+    configs/models.yaml, so scripts/serve_vllm.sh never has to parse YAML
+    in bash. Prints one shell-escaped token per line's worth of args,
+    space-joined on stdout (no trailing newline inside tokens)."""
+    cfg = _model_config(models_config, model)
+    args = [
+        "vllm",
+        "serve",
+        cfg["repo_id"],
+        "--served-model-name",
+        cfg["served_model_name"],
+        "--port",
+        str(port),
+        "--tensor-parallel-size",
+        "1",
+        "--gpu-memory-utilization",
+        str(cfg["gpu_memory_utilization"]),
+        "--max-model-len",
+        str(cfg["max_model_len"]),
+        "--no-enable-prefix-caching",
+    ]
+    if cfg.get("enable_auto_tool_choice"):
+        args.append("--enable-auto-tool-choice")
+    if cfg.get("tool_call_parser"):
+        args += ["--tool-call-parser", cfg["tool_call_parser"]]
+    if cfg.get("reasoning_parser"):
+        args += ["--reasoning-parser", cfg["reasoning_parser"]]
+    args += [str(a) for a in cfg.get("vllm_extra_args", [])]
+    typer.echo(" ".join(args))
+
+
+@app.command(name="list-models")
+def list_models(models_config: Path = typer.Option(DEFAULT_MODELS_CONFIG)) -> None:
+    """Print each model id, one per line, in the order defined by its
+    `order` field in configs/models.yaml. Used by scripts/run_all.sh."""
+    data = _load_yaml(models_config)
+    for model in sorted(data["models"], key=lambda m: m["order"]):
+        typer.echo(model["id"])
 
 
 @app.command()

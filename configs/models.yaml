@@ -73,6 +73,7 @@ models:
     enable_auto_tool_choice: true
     max_model_len: 16384
     gpu_memory_utilization: 0.85
+    vllm_extra_args: ["--quantization", "awq_marlin"]
     notes: >
       MoE, 25.2B total / 3.8B active params, AWQ 4-bit, ~17.6 GB on disk.
       The model card states the Gemma 4 MoE architecture needs
@@ -85,7 +86,14 @@ models:
       0.24.0 -- checked empirically at this model's smoke test. Official vLLM
       recipe tool-calling example: --enable-auto-tool-choice
       --tool-call-parser gemma4 --reasoning-parser gemma4
-      --chat-template examples/tool_chat_template_gemma4.jinja.
+      --chat-template examples/tool_chat_template_gemma4.jinja -- that
+      path is inside the vLLM source tree, which a pip install may not
+      ship; NOT yet added to vllm_extra_args below. To check/resolve at
+      this model's smoke test: see if vLLM's default chat template
+      already supports tool calling (try without --chat-template
+      first), else locate the file (pip package data or fetch from the
+      vllm-project/vllm GitHub repo at the installed version's tag) and
+      add it here.
       BF16 recipe recommends --max-model-len 32768
       --gpu-memory-utilization 0.90 on an 80GB GPU; max_model_len is
       reduced here to fit a 24GB GPU with the 4-bit weights.
