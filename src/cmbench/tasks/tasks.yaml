@@ -1,0 +1,65 @@
+# Task statements, T1-T6, per PLAN.md §4. `answer_format` is appended to
+# the statement by the prompt builder (cmbench.runner) so every task
+# shares one FINAL_ANSWER instruction instead of repeating it.
+
+tasks:
+  - id: T1
+    title: Simple count
+    statement: >-
+      How many open tickets does customer C0042 have?
+    answer_format: >-
+      a single JSON integer, e.g. FINAL_ANSWER: 3
+
+  - id: T2
+    title: Simple, two-step lookup
+    statement: >-
+      What is the email address of the customer who placed order O1337?
+    answer_format: >-
+      a single JSON string, e.g. FINAL_ANSWER: "someone@example.com"
+
+  - id: T3
+    title: Chained aggregation
+    statement: >-
+      Among VIP customers in the 'South' region, sum each customer's unpaid
+      invoices (status 'unpaid' or 'overdue'). Return the top 3 customers by
+      that total, ranked from highest to lowest.
+    answer_format: >-
+      a JSON array of exactly 3 [customer_id, total_amount] pairs, ranked
+      highest total first, e.g.
+      FINAL_ANSWER: [["C0012", 1234.56], ["C0044", 980.10], ["C0007", 500.00]]
+
+  - id: T4
+    title: Loop with writes
+    statement: >-
+      For every customer who has more than 2 overdue invoices: add the note
+      'Q4 follow-up' to their customer record (overwriting any existing
+      note), and send them a reminder email about their overdue invoices
+      (any subject and body mentioning the overdue payment is fine).
+    answer_format: >-
+      a JSON object with one field, "customers_updated", listing the
+      customer ids you processed, e.g.
+      FINAL_ANSWER: {"customers_updated": ["C0010", "C0023"]}
+
+  - id: T5
+    title: Large-volume filter
+    statement: >-
+      Among orders placed in October 2026 (order_date between 2026-10-01 and
+      2026-10-31 inclusive) in the 'Electronics' product category, return
+      the 5 largest orders by amount, ranked from highest to lowest.
+    answer_format: >-
+      a JSON array of exactly 5 [order_id, amount] pairs, ranked highest
+      amount first, e.g.
+      FINAL_ANSWER: [["O0123", 1999.99], ["O0456", 1500.00], ...]
+
+  - id: T6
+    title: Textual / free-form
+    statement: >-
+      Read customer C0107's 3 most recent tickets and state the single
+      dominant complaint category among them. The dominant category is
+      whichever category appears most often among the 3 tickets. If all 3
+      tickets have different categories (no majority), the dominant
+      category is the most recent ticket's category.
+    answer_format: >-
+      a single JSON string with the category label exactly as stored
+      (e.g. "billing", "shipping", "product_defect", "support", or
+      "other"), e.g. FINAL_ANSWER: "billing"
