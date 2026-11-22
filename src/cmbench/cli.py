@@ -195,6 +195,13 @@ def serve_cmd(
         "--max-model-len",
         str(cfg["max_model_len"]),
         "--no-enable-prefix-caching",
+        # The harness only ever sends one request at a time (never
+        # concurrent trials), so a small max-num-seqs avoids vLLM
+        # over-committing VRAM to a KV-cache warm-up batch it will
+        # never actually need (default 256 caused a CUDA OOM at
+        # startup on this 24GB GPU).
+        "--max-num-seqs",
+        "16",
     ]
     if cfg.get("enable_auto_tool_choice"):
         args.append("--enable-auto-tool-choice")
