@@ -210,11 +210,19 @@ def run_trial(
 
     timestamp = datetime.now(UTC).isoformat()
     start = time.monotonic()
+    # Not a `with` block on purpose: ThreadPoolExecutor.__exit__ calls
+    # shutdown(wait=True), which would block until the abandoned worker
+    # thread finishes even after future.result() already raised
+    # TimeoutError -- defeating the wall-clock limit entirely (observed:
+    # a trial ran 100+ minutes past its 600s budget because of this).
+    # shutdown(wait=False) lets this function return promptly; the
+    # orphaned thread (and its still-running vLLM request) is abandoned.
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(_invoke)
-            outcome = future.result(timeout=TRIAL_WALL_CLOCK_LIMIT_S)
+        future = pool.submit(_invoke)
+        outcome = future.result(timeout=TRIAL_WALL_CLOCK_LIMIT_S)
     except concurrent.futures.TimeoutError:
+        pool.shutdown(wait=False)
         wall = time.monotonic() - start
         return (
             TrialRecord(
@@ -245,6 +253,7 @@ def run_trial(
             [],
         )
     except UsageMissingError as exc:
+        pool.shutdown(wait=False)
         return (
             TrialRecord(
                 trial_id=spec.trial_id,
@@ -274,6 +283,7 @@ def run_trial(
             [],
         )
     except Exception as exc:  # noqa: BLE001 -- classified below, never silently dropped
+        pool.shutdown(wait=False)
         wall = time.monotonic() - start
         failure_type = "context_overflow" if _is_context_overflow(exc) else "tool_error"
         return (
@@ -304,6 +314,7 @@ def run_trial(
             ),
             [],
         )
+    pool.shutdown(wait=False)
 
     latency_total = sum(outcome.per_request_latencies)
     total_tokens = outcome.total_usage.total_tokens

@@ -67,9 +67,16 @@ class OpenAICompatProvider(Provider):
     base_url: str
     model: str
     api_key: str = "EMPTY"
+    # Defense-in-depth against a dead/stalled connection to vLLM: without
+    # this, a single hung request could block forever (the runner's own
+    # 600s trial wall-clock limit bounds abandoning a slow trial, but
+    # can't force an in-flight HTTP call to actually return).
+    request_timeout_s: float = 900.0
 
     def __post_init__(self) -> None:
-        self._client = OpenAI(base_url=self.base_url, api_key=self.api_key)
+        self._client = OpenAI(
+            base_url=self.base_url, api_key=self.api_key, timeout=self.request_timeout_s
+        )
 
     def chat(
         self,

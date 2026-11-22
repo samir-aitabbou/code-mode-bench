@@ -22,10 +22,13 @@ def test_serve_cmd_gpt_oss() -> None:
     assert "--no-enable-prefix-caching" in result.output
 
 
-def test_serve_cmd_gemma_includes_quantization_flag() -> None:
-    result = runner.invoke(app, ["serve-cmd", "--model", "gemma-4-26b-a4b"])
+def test_serve_cmd_qwen35_includes_tokenizer_override() -> None:
+    # Qwen3.5-9B-FP8-dynamic's tokenizer_config.json sets an unrecognized
+    # tokenizer_class -- see configs/models.yaml. --tokenizer points at the
+    # base repo instead, which uses a standard tokenizer class.
+    result = runner.invoke(app, ["serve-cmd", "--model", "qwen3.5-9b"])
     assert result.exit_code == 0, result.output
-    assert "--quantization awq_marlin" in result.output
+    assert "--tokenizer Qwen/Qwen3.5-9B" in result.output
 
 
 def test_serve_cmd_unknown_model_fails() -> None:
