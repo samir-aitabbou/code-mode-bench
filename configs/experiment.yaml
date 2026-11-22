@@ -1,0 +1,30 @@
+# Experiment plan. See PLAN.md for the full rationale and hypotheses H1-H7.
+
+seed: 42
+gpu_hourly_usd: 0.50
+
+modes: [classic, codemode]
+
+tasks: [T1, T2, T3, T4, T5, T6]
+
+limits:
+  max_turns: 15
+  max_code_exec_seconds: 120
+  max_trial_seconds: 600
+  truncate_output_chars: 8000
+
+vllm:
+  enable_prefix_caching: false # disabled for the main measurements, see PLAN.md §5
+
+main_series:
+  tasks: [T1, T2, T3, T4, T5, T6]
+  repetitions: 10
+  tool_count_variant: 12 # the normal 12-tool MCP server
+
+tool_bloat_variant:
+  tasks: [T3, T5]
+  repetitions: 5
+  tool_count_variant: 60 # 12 real tools + 48 noise tools, see src/cmbench/mcp_server/extra_tools.py
+
+# Total trials per model: 6*2*10 (main) + 2*2*5 (tool bloat) = 140
+# Total trials, 4 models: 560 (matches PLAN.md §6)

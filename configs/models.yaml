@@ -1,0 +1,104 @@
+# Model configs for the 4 local models, tested one at a time on a single
+# NVIDIA L40S-24Q (~21.7 GB free VRAM). All facts below (repo id, exact
+# quantization, min vLLM version, recommended tool-call parser) were
+# verified against the model's Hugging Face card and the official vLLM
+# recipe at https://recipes.vllm.ai on 2026-11-22 -- see PROGRESS.md for
+# the verification notes and links.
+#
+# Serving venv:
+#   - models 1-4 (this file): ~/code-mode-bench/.venv-vllm, vLLM 0.32.0,
+#     installed with the cu128 (CUDA 12.8) torch index, same venv and
+#     version for all 4 models so the comparison is fair.
+#   - Samir's pre-existing ~/venv-vllm (vLLM 0.17.1) is NOT used by this
+#     project and is never modified.
+
+models:
+  - id: gpt-oss-20b
+    order: 1
+    repo_id: openai/gpt-oss-20b
+    quantization: mxfp4-native
+    served_model_name: gpt-oss-20b
+    tool_call_parser: openai
+    reasoning_parser: null
+    enable_auto_tool_choice: true
+    max_model_len: 32768
+    gpu_memory_utilization: 0.85
+    notes: >
+      Native MXFP4 MoE weights (21B total / 3.6B active). Already cached
+      in ~/.cache/huggingface on the VM. Official vLLM recipe
+      (recipes.vllm.ai/openai/gpt-oss-20b) requires vLLM >= 0.10.1 and
+      gives: --tensor-parallel-size 1 --tool-call-parser openai
+      --enable-auto-tool-choice. No reasoning-parser flag in the recipe.
+
+  - id: qwen3.5-9b
+    order: 2
+    repo_id: RedHatAI/Qwen3.5-9B-FP8-dynamic
+    base_repo_id: Qwen/Qwen3.5-9B
+    quantization: fp8-dynamic
+    served_model_name: qwen3.5-9b
+    tool_call_parser: qwen3_coder
+    reasoning_parser: qwen3
+    enable_auto_tool_choice: true
+    max_model_len: 32768
+    gpu_memory_utilization: 0.85
+    notes: >
+      FP8 dynamic (weights+activations), ~14 GB on disk (vs 19.3 GB
+      BF16), built with LLM Compressor, created with vllm==0.18.1.
+      Official vLLM recipe (recipes.vllm.ai/Qwen/Qwen3.5-9B?variant=fp8)
+      requires vLLM >= 0.17.0 and gives: --trust-remote-code
+      --kv-cache-dtype fp8 --tensor-parallel-size 1
+      --enable-auto-tool-choice --tool-call-parser qwen3_coder
+      --reasoning-parser qwen3. Known issue: "assert num_cache_lines >=
+      batch" -- fix is lowering --max-cudagraph-capture-size (default
+      512) if it occurs.
+
+  - id: gemma-4-26b-a4b
+    order: 3
+    repo_id: axteam/gemma-4-26B-A4B-AWQ-4bit
+    base_repo_id: google/gemma-4-26B-A4B-it
+    quantization: awq-4bit
+    served_model_name: gemma-4-26b-a4b
+    tool_call_parser: gemma4
+    reasoning_parser: gemma4
+    enable_auto_tool_choice: true
+    max_model_len: 16384
+    gpu_memory_utilization: 0.85
+    notes: >
+      MoE, 25.2B total / 3.8B active params, AWQ 4-bit, ~17.6 GB on disk.
+      The model card states the Gemma 4 MoE architecture needs
+      vLLM >= 0.19.0 -- NOT supported by Samir's pre-existing
+      ~/venv-vllm (0.17.1). This is why models 1-4 are all served from
+      the separate ~/code-mode-bench/.venv-vllm (vLLM 0.32.0, the
+      version the AWQ card reports testing against). Official vLLM
+      recipe tool-calling example: --enable-auto-tool-choice
+      --tool-call-parser gemma4 --reasoning-parser gemma4
+      --chat-template examples/tool_chat_template_gemma4.jinja.
+      BF16 recipe recommends --max-model-len 32768
+      --gpu-memory-utilization 0.90 on an 80GB GPU; max_model_len is
+      reduced here to fit a 24GB GPU with the 4-bit weights.
+
+  - id: qwen3.8-27b
+    order: 4
+    repo_id: RedHatAI/Qwen3.8-27B-INT4
+    base_repo_id: Qwen/Qwen3.8-27B
+    quantization: int4-awq-smoothed-w4a16
+    served_model_name: qwen3.8-27b
+    tool_call_parser: qwen3_coder  # see PROGRESS.md: tested against qwen3_xml at smoke test, winner recorded there
+    reasoning_parser: qwen3
+    enable_auto_tool_choice: true
+    max_model_len: 16384
+    gpu_memory_utilization: 0.85
+    notes: >
+      Dense 27B, hybrid attention (16 full-attention + 48 Gated
+      DeltaNet layers), AWQ-smoothed W4A16 GPTQ scheme (compressed-tensors),
+      FP8 KV cache. Official vLLM recipe
+      (recipes.vllm.ai/Qwen/Qwen3.8-27B?variant=int4) requires
+      vLLM >= 0.17.0 and transformers >= 5.8.0, and gives:
+      --tensor-parallel-size 1 --enable-auto-tool-choice
+      --tool-call-parser qwen3_coder --reasoning-parser qwen3
+      --mm-encoder-tp-mode data. The RedHatAI model card instead shows
+      --tool-call-parser qwen3_xml. The two sources disagree; both are
+      smoke-tested and the one that actually parses tool calls
+      correctly is kept (recorded in PROGRESS.md and REPORT.md).
+      barrydeen/Qwen3.8-27B-AWQ-4bit (true AWQ W4A16) was rejected: 27.8
+      GB on disk, too large for this 24GB GPU alongside KV cache.
