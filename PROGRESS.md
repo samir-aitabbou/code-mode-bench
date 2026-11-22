@@ -77,22 +77,42 @@
   écrit (déterminisme, comptages, ids-ancres C0042/C0107/O1337, non-ambiguïté T3/T4/T5, reset).
   Pas encore exécuté (installation locale `uv sync --extra dev` en cours).
 
-## En cours
+- **Serveur MCP** : `src/cmbench/mcp_server/tools.py` (logique pure, `CrmTools`, partagée entre
+  les deux modes) + `server.py` (12 outils MCP) + `extra_tools.py` (48 outils « bruit » générés
+  par template pour la variante 60 outils) + `adapter.py` (MCP `Tool` → `ToolSpec`). **Attention
+  changement d'API important** : le paquet `mcp` installé est la version **2.3.0**, où `FastMCP`
+  a été renommé `MCPServer` (`mcp.server.mcpserver`, pas `mcp.server.fastmcp`). Le code et les
+  tests utilisent la nouvelle API. 24 tests passent (seed + tools + server).
 
-- `uv sync --extra dev` en local sur le PC (installation des dépendances de dev : faker,
-  pandas, numpy, matplotlib, pytest, ruff, mypy...). Dès que c'est fini : lancer
-  `uv run pytest tests/test_seed.py -v` pour valider le générateur.
+- **Providers, modes et sandbox** (cœur du harness) :
+  - `providers/base.py` : interface `Provider` (abstraite), `Usage`, `ToolSpec`, `ChatMessage`,
+    `UsageMissingError` (essai invalide si pas de `usage`, jamais estimé — CLAUDE.md §3.4).
+  - `providers/openai_compat.py` : client vLLM (clé factice `EMPTY`). Gère l'union de types
+    `tool_calls` du SDK `openai` 3.x (function vs « custom » tool calls).
+  - `sandbox/bridge.py` + `sandbox/runner.py` : bac à sable codemode. Le code du modèle tourne
+    dans un sous-processus avec un module `tools` généré ; les appels `tools.xxx()` passent par
+    un protocole JSON-RPC ligne par ligne (stdin/stdout) vers l'exécuteur réel du harness.
+    Isolation réseau via `unshare -rn` sur Linux (testée au runtime, repli sans isolation +
+    avertissement loggé si indisponible — **à vérifier sur la VM**), délai max, sortie tronquée
+    à 8000 caractères. Testé de bout en bout (succès, erreur d'outil, timeout, troncature).
+  - `modes/classic.py` + `modes/codemode.py` : les deux boucles d'agent, partageant le protocole
+    `FINAL_ANSWER` (`modes/common.py`). `modes/typed_api.py` génère le module `tools.py` typé
+    montré au modèle en codemode directement depuis les schémas JSON MCP (donc le prompt et
+    l'exécution réelle ne peuvent pas diverger).
+  - 16 nouveaux tests (40 au total), tous contre un `StubProvider` simulé (pas de GPU/API en
+    CI) + le vrai sous-processus sandbox. Ruff et mypy propres.
 
 ## Prochaine étape
 
-1. Valider `tests/test_seed.py` en local, corriger si besoin.
-2. Serveur MCP (`src/cmbench/mcp_server/server.py`, 12 outils + `extra_tools.py` pour la
-   variante 60 outils) + tests.
-3. Modes `classic`/`codemode`, sandbox, pont, fournisseur vLLM (`openai_compat.py`), avec tests
-   sur un fournisseur simulé (CI sans GPU).
-4. `scripts/serve_vllm.sh`, `scripts/stop_vllm.sh`, `scripts/run_all.sh`, runner avec reprise.
-5. Synchroniser le dépôt vers `~/code-mode-bench` sur la VM (rsync ou git), télécharger les 3
+1. `tasks/tasks.yaml` (énoncés T1-T6 en anglais) + `tasks/graders.py` (réponses attendues en
+   SQL sur la base de référence, correcteurs, y compris l'état final DB+outbox pour T4).
+2. `metrics.py` (coût, agrégats, IC bootstrap, Wilson) et `runner.py` (orchestration, reprise
+   par id d'essai unique, ordre mélangé à graine fixe, logs, traces).
+3. `scripts/serve_vllm.sh`, `scripts/stop_vllm.sh`, `scripts/run_all.sh`.
+4. Synchroniser le dépôt vers `~/code-mode-bench` sur la VM (rsync ou git), télécharger les 3
    modèles manquants (Qwen3.5-9B FP8, Gemma 4 AWQ, Qwen3.8-27B INT4).
+5. **Vérifier `unshare -rn` sur la VM** (Linux) — sur le PC Windows de dev, le sandbox tourne
+   sans isolation réseau (chemin de repli), jamais testé en conditions réelles.
 6. Test de fumée gpt-oss-20b (déjà en cache), puis les 3 autres (dont test empirique
    qwen3_coder vs qwen3_xml pour Qwen3.8-27B, et vérification du chargement AWQ de Gemma 4).
 7. **⏸ Présenter à Samir le tableau de compatibilité final + résultats du test de fumée avant
