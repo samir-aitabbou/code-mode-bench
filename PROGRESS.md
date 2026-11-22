@@ -102,20 +102,36 @@
   - 16 nouveaux tests (40 au total), tous contre un `StubProvider` simulé (pas de GPU/API en
     CI) + le vrai sous-processus sandbox. Ruff et mypy propres.
 
+- **Dépôt poussé sur la VM** (pas de `rsync` sur le PC Windows → utilisé `git` à la place,
+  autorisé par CLAUDE.md §1) : `git init -b master` + `receive.denyCurrentBranch=updateInstead`
+  dans `~/code-mode-bench` sur la VM, remote `vm` ajouté en local (`redacted-gpu-vm:code-mode-bench`),
+  `git push vm master`. `.venv-vllm` n'a pas été touché (gitignore `.venv-*/`). `uv` installé en
+  user-space sur la VM via l'installeur officiel (`curl -LsSf https://astral.sh/uv/install.sh`,
+  dans `~/.local/bin`, PATH non hérité en SSH non interactif → utiliser le chemin complet
+  `~/.local/bin/uv`). `uv sync --extra dev` fait dans `~/code-mode-bench` (son propre `.venv`,
+  séparé de `.venv-vllm`). **84 tests passent sur la VM (Linux)**.
+
+- **CLI** (`src/cmbench/cli.py`, manquait malgré la référence dans `pyproject.toml`) :
+  `data`, `run`, `smoke` (sort en erreur si échec, utilisé par `run_all.sh`), `bench`,
+  `status`, `serve-cmd` (génère la commande `vllm serve` depuis `configs/models.yaml`, évite de
+  parser du YAML en bash), `list-models`.
+
+- **Isolation réseau du bac à sable — testée en conditions réelles sur la VM** :
+  `unshare -rn` échoue (`write failed /proc/self/uid_map: Operation not permitted` — user
+  namespaces non privilégiés désactivés sur cette VM). **Repli sur Docker confirmé** :
+  l'utilisateur est dans le groupe `docker`, `docker run --network none python:3.12-slim`
+  fonctionne sans sudo. `sandbox/runner.py` essaie `unshare -rn` puis `docker run --network
+  none` puis repli sans isolation (avec avertissement loggé) si aucun des deux ne marche.
+  Testé de bout en bout sur la VM (8 tests sandbox/codemode passent avec Docker actif).
+
 ## Prochaine étape
 
-1. `tasks/tasks.yaml` (énoncés T1-T6 en anglais) + `tasks/graders.py` (réponses attendues en
-   SQL sur la base de référence, correcteurs, y compris l'état final DB+outbox pour T4).
-2. `metrics.py` (coût, agrégats, IC bootstrap, Wilson) et `runner.py` (orchestration, reprise
-   par id d'essai unique, ordre mélangé à graine fixe, logs, traces).
-3. `scripts/serve_vllm.sh`, `scripts/stop_vllm.sh`, `scripts/run_all.sh`.
-4. Synchroniser le dépôt vers `~/code-mode-bench` sur la VM (rsync ou git), télécharger les 3
-   modèles manquants (Qwen3.5-9B FP8, Gemma 4 AWQ, Qwen3.8-27B INT4).
-5. **Vérifier `unshare -rn` sur la VM** (Linux) — sur le PC Windows de dev, le sandbox tourne
-   sans isolation réseau (chemin de repli), jamais testé en conditions réelles.
-6. Test de fumée gpt-oss-20b (déjà en cache), puis les 3 autres (dont test empirique
-   qwen3_coder vs qwen3_xml pour Qwen3.8-27B, et vérification du chargement AWQ de Gemma 4).
-7. **⏸ Présenter à Samir le tableau de compatibilité final + résultats du test de fumée avant
+1. Télécharger les 3 modèles manquants (Qwen3.5-9B FP8, Gemma 4 AWQ, Qwen3.8-27B INT4) sur la
+   VM.
+2. Test de fumée gpt-oss-20b (déjà en cache), puis les 3 autres (dont test empirique
+   qwen3_coder vs qwen3_xml pour Qwen3.8-27B, vérification du chargement AWQ de Gemma 4, et
+   question ouverte sur `--chat-template` pour Gemma 4 — voir `configs/models.yaml`).
+3. **⏸ Présenter à Samir le tableau de compatibilité final + résultats du test de fumée avant
    le pilote.**
 
 ## Commandes utiles
