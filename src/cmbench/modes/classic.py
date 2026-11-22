@@ -27,6 +27,7 @@ class TrialOutcome:
     total_usage: Usage = field(default_factory=lambda: Usage(0, 0))
     per_request_latencies: list[float] = field(default_factory=list)
     stopped_reason: str = "max_turns"  # "final_answer" | "max_turns"
+    had_error: bool = False  # at least one tool call raised during the trial
 
 
 def run_classic_trial(
@@ -68,6 +69,7 @@ def run_classic_trial(
                     result_text = str(result)
                 except Exception as exc:  # noqa: BLE001 -- a tool error is a normal trial outcome
                     result_text = f"ERROR: {exc}"
+                    outcome.had_error = True
                 messages.append(
                     ChatMessage(
                         role="tool", content=result_text, tool_call_id=tc.id, name=tc.name

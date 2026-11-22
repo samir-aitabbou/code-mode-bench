@@ -43,6 +43,7 @@ class TrialOutcome:
     total_usage: Usage = field(default_factory=lambda: Usage(0, 0))
     per_request_latencies: list[float] = field(default_factory=list)
     stopped_reason: str = "max_turns"  # "final_answer" | "max_turns"
+    had_error: bool = False  # at least one code execution timed out or exited non-zero
 
 
 def _format_sandbox_result(result: SandboxResult) -> str:
@@ -106,6 +107,8 @@ def run_codemode_trial(
                     timeout_seconds=max_code_exec_seconds,
                 )
                 outcome.num_tool_calls += result.num_tool_calls
+                if result.timed_out or result.exit_code not in (0, None):
+                    outcome.had_error = True
                 messages.append(
                     ChatMessage(
                         role="tool",

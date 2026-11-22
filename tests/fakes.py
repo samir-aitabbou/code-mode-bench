@@ -21,13 +21,17 @@ from cmbench.providers.base import (
 
 @dataclass
 class StubProvider(Provider):
-    """Returns pre-scripted responses in order, one per `chat()` call."""
+    """Returns pre-scripted responses in order, one per `chat()` call.
+    An item may be an `Exception` instance instead of a `ChatResponse`,
+    in which case `chat()` raises it (used to simulate e.g.
+    `UsageMissingError` or a context-length error from the real vLLM
+    provider, without needing a live server)."""
 
-    responses: list[ChatResponse]
+    responses: list[ChatResponse | Exception]
     calls: list[list[ChatMessage]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        self._iter: Iterator[ChatResponse] = iter(self.responses)
+        self._iter: Iterator[ChatResponse | Exception] = iter(self.responses)
 
     def chat(
         self,
@@ -38,9 +42,12 @@ class StubProvider(Provider):
     ) -> ChatResponse:
         self.calls.append(list(messages))
         try:
-            return next(self._iter)
+            item = next(self._iter)
         except StopIteration as exc:
             raise AssertionError("StubProvider ran out of scripted responses") from exc
+        if isinstance(item, Exception):
+            raise item
+        return item
 
 
 def usage(prompt_tokens: int = 10, completion_tokens: int = 5) -> Usage:
