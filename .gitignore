@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+.venv/
+venv/
+.venv-*/
+
+.env
+*.env.local
+
+# Local SQLite data, generated per run
+*.db
+*.sqlite3
+
+# Live-run operational markers (not final deliverables; results/raw, results/summary
+# and results/figures ARE committed once the benchmark completes, see PLAN.md §8)
+results/run_status.json
+results/run.log
+results/DONE
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

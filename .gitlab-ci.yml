@@ -1,0 +1,27 @@
+# CI runs on every push. It never touches a GPU and never calls a paid API:
+# all provider calls in tests use a stub provider (see tests/ and
+# src/cmbench/providers/base.py).
+
+stages:
+  - quality
+
+default:
+  image: python:3.12-slim
+  before_script:
+    - pip install --no-cache-dir uv
+    - uv sync --extra dev
+
+lint:
+  stage: quality
+  script:
+    - uv run ruff check src tests
+
+typecheck:
+  stage: quality
+  script:
+    - uv run mypy src
+
+test:
+  stage: quality
+  script:
+    - uv run pytest --cov=cmbench --cov-report=term-missing
