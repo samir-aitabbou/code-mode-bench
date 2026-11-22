@@ -4,6 +4,8 @@
 # answer before returning. Usage: scripts/serve_vllm.sh <model_id>
 set -euo pipefail
 
+export PATH="$HOME/.local/bin:$PATH"  # so `uv` is found even in a non-interactive shell
+
 MODEL_ID="${1:?usage: serve_vllm.sh <model_id>}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_VLLM="${CMBENCH_VLLM_VENV:-$HOME/code-mode-bench/.venv-vllm}"

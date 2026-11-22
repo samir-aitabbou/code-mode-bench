@@ -6,6 +6,8 @@
 # never blocks the rest. Meant to run inside `tmux new -s cmbench`.
 set -uo pipefail  # no -e: one model's failure must not kill the whole run
 
+export PATH="$HOME/.local/bin:$PATH"  # so `uv` is found even inside tmux/non-login shells
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESULTS_DIR="$PROJECT_DIR/results"
 STATUS_FILE="$RESULTS_DIR/run_status.json"
