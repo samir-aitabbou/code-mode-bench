@@ -202,6 +202,10 @@ def serve_cmd(
         # startup on this 24GB GPU).
         "--max-num-seqs",
         "16",
+        # CUDA graph capture still OOM'd with max-num-seqs=16 (21.2 of
+        # 23.76 GiB used, 28 MiB short). We don't need the throughput
+        # CUDA graphs buy for single-sequence trials, so skip them.
+        "--enforce-eager",
     ]
     if cfg.get("enable_auto_tool_choice"):
         args.append("--enable-auto-tool-choice")
