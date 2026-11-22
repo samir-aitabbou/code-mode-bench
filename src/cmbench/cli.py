@@ -207,6 +207,8 @@ def serve_cmd(
         # CUDA graphs buy for single-sequence trials, so skip them.
         "--enforce-eager",
     ]
+    if cfg.get("trust_remote_code"):
+        args.append("--trust-remote-code")
     if cfg.get("enable_auto_tool_choice"):
         args.append("--enable-auto-tool-choice")
     if cfg.get("tool_call_parser"):

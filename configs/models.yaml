@@ -57,6 +57,7 @@ models:
     tool_call_parser: qwen3_coder
     reasoning_parser: qwen3
     enable_auto_tool_choice: true
+    trust_remote_code: true
     max_model_len: 32768
     gpu_memory_utilization: 0.85
     notes: >
@@ -116,6 +117,7 @@ models:
     tool_call_parser: qwen3_coder  # see PROGRESS.md: tested against qwen3_xml at smoke test, winner recorded there
     reasoning_parser: qwen3
     enable_auto_tool_choice: true
+    trust_remote_code: true
     max_model_len: 16384
     gpu_memory_utilization: 0.85
     notes: >
