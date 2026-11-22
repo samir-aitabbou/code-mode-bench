@@ -32,37 +32,69 @@
 
 - **Décision de Samir (2026-11-22)** : un seul venv `~/code-mode-bench/.venv-vllm` avec une
   seule version de vLLM ≥0.19 pour les **4 modèles** (équité de comparaison), build CUDA 12.8
-  (index `cu128`), sans toucher à `~/venv-vllm`. Version choisie : **vLLM 0.32.0** (version
-  explicitement citée comme testée sur la fiche HF du quant AWQ de Gemma 4). Installation en
-  cours sur la VM (`pip install vllm==0.32.0 --extra-index-url https://download.pytorch.org/whl/cu128`
-  dans `~/code-mode-bench/.venv-vllm`) — **vérifier `torch.cuda.is_available()` avant tout
-  téléchargement de modèle**, comme demandé.
+  (index `cu128`), sans toucher à `~/venv-vllm`.
+
+- **Installation de vLLM sur la VM — plusieurs tentatives, voir le détail car c'est instructif :**
+  1. `pip install vllm==0.32.0 --extra-index-url .../cu128` → a installé torch 2.13.0+**cu130**
+     (pip a ignoré l'index cu128 car vllm 0.32.0 exige `torch==2.13.0` exactement, et ce torch
+     n'a plus de build cu128 publié). `torch.cuda.is_available()` → **False** (driver limité à
+     CUDA 12.8).
+  2. `uv pip install vllm==0.32.0 --torch-backend=auto` → même résultat (le problème n'est pas
+     la détection du backend, c'est l'absence de build cu128 pour torch 2.13.0).
+  3. Recherche des versions de vLLM encore compatibles cu128 : vLLM ≥0.27.0 exige
+     `torch==2.13.0` (pas de build cu128) ; 0.19.0–0.26.0 exigent `torch==2.10.0` ou `2.11.0`
+     (build cu128 disponible) ; mais vLLM ≥0.25.0 exige en plus `torchcodec>=0.14`, dont le
+     build cu128 ne va que jusqu'à 0.11.1 → bloquant aussi.
+  4. **Retenu : vLLM 0.24.0** (dernière version sans la contrainte `torchcodec`, avec
+     `torch==2.11.0`) + `uv pip install vllm==0.24.0 --torch-backend=cu128`. Résultat confirmé :
+     `torch 2.11.0+cu128`, **`torch.cuda.is_available() == True`**, GPU détecté
+     (`NVIDIA L40S-24Q`). ✅
+  - Conséquence : on n'a pas exactement la version « testée » par la fiche HF du quant AWQ de
+    Gemma 4 (0.32.0), mais on satisfait le plancher qu'elle indique (≥0.19.0). Un bug connu de
+    chargement AWQ (vllm-project/vllm#40286, sur 0.19.1, corrigé par la PR #40708) n'est pas
+    confirmé présent ou absent en 0.24.0 — **à vérifier empiriquement au smoke test de Gemma 4**
+    (si l'erreur `KeyError` du bug apparaît, il faudra remonter de version et retrouver un
+    conflit cu128, ou essayer un wheel CPU-offload / une autre quantification — en reparler à
+    Samir si ça arrive).
+  - `configs/models.yaml` mis à jour avec la version réelle (0.24.0) et cette explication.
 
 - **Squelette du dépôt** : `git init` local dans `code-mode-bench/` (git config local, pas
   touché à la config git globale de Samir). Structure `src/cmbench/...`, `tests/`, `configs/`,
   `scripts/`, `docs/`, `results/`. `pyproject.toml` (hatch + uv, Python ≥3.11), `Makefile`,
   `.gitlab-ci.yml` (lint/types/tests, sans GPU ni API), `.gitignore`, `.gitattributes` (LF forcé),
-  `.env.example` (URL vLLM local, clé factice `EMPTY`), `LICENSE` (MIT, © 2026 Samir Ait-Abbou).
-  `configs/models.yaml` (4 modèles, infos sourcées) et `configs/experiment.yaml` (tâches, modes,
-  répétitions, limites — 560 essais au total, conforme à PLAN.md §6). Commit initial fait.
+  `.env.example` (URL vLLM local, clé factice `EMPTY`), `LICENSE` (MIT, © 2026 Samir Ait-Abbou),
+  `README.md` (stub, sera complété à la fin). `configs/models.yaml` (4 modèles, infos sourcées)
+  et `configs/experiment.yaml` (tâches, modes, répétitions, limites — 560 essais au total,
+  conforme à PLAN.md §6).
+
+- **Générateur de données** : `src/cmbench/data/constants.py` (vocabulaire partagé) et
+  `src/cmbench/data/seed.py` (génération SQLite déterministe seed=42, volumes PLAN.md §3 :
+  500 clients / 200 produits / 5000 commandes / 8000 factures / 1500 tickets / outbox vide).
+  Garantit l'absence d'ambiguïté (T3 : écart >0,01 entre les 4 premiers clients VIP+South par
+  impayés ; T4 : ≥5 clients avec >2 factures en retard ; T5 : écart >0,01 entre les 6 premières
+  commandes Electronics d'octobre 2026) via `_verify_unambiguous`, avec un mécanisme de
+  correction déterministe (`_nudge_ties`) si un seed futur produisait une égalité. `tests/test_seed.py`
+  écrit (déterminisme, comptages, ids-ancres C0042/C0107/O1337, non-ambiguïté T3/T4/T5, reset).
+  Pas encore exécuté (installation locale `uv sync --extra dev` en cours).
 
 ## En cours
 
-- Installation de vLLM 0.32.0 + PyTorch (cu128) dans `~/code-mode-bench/.venv-vllm` sur la VM
-  (tâche de fond, pas encore confirmée terminée). Prochaine vérif : `torch.cuda.is_available()`.
+- `uv sync --extra dev` en local sur le PC (installation des dépendances de dev : faker,
+  pandas, numpy, matplotlib, pytest, ruff, mypy...). Dès que c'est fini : lancer
+  `uv run pytest tests/test_seed.py -v` pour valider le générateur.
 
 ## Prochaine étape
 
-1. Confirmer l'installation vLLM 0.32.0 + `torch.cuda.is_available() == True` sur la VM.
-2. Écrire `src/cmbench/data/seed.py` (génération SQLite déterministe seed=42, volumes de
-   PLAN.md §3) + ses tests (déterminisme, pas d'égalité en top 3/5, ≥5 clients pour T4).
-3. Serveur MCP (`src/cmbench/mcp_server/server.py`, 12 outils + `extra_tools.py` pour la
+1. Valider `tests/test_seed.py` en local, corriger si besoin.
+2. Serveur MCP (`src/cmbench/mcp_server/server.py`, 12 outils + `extra_tools.py` pour la
    variante 60 outils) + tests.
-4. Modes `classic`/`codemode`, sandbox, pont, fournisseur vLLM (`openai_compat.py`), avec tests
+3. Modes `classic`/`codemode`, sandbox, pont, fournisseur vLLM (`openai_compat.py`), avec tests
    sur un fournisseur simulé (CI sans GPU).
-5. `scripts/serve_vllm.sh`, `scripts/stop_vllm.sh`, `scripts/run_all.sh`, runner avec reprise.
+4. `scripts/serve_vllm.sh`, `scripts/stop_vllm.sh`, `scripts/run_all.sh`, runner avec reprise.
+5. Synchroniser le dépôt vers `~/code-mode-bench` sur la VM (rsync ou git), télécharger les 3
+   modèles manquants (Qwen3.5-9B FP8, Gemma 4 AWQ, Qwen3.8-27B INT4).
 6. Test de fumée gpt-oss-20b (déjà en cache), puis les 3 autres (dont test empirique
-   qwen3_coder vs qwen3_xml pour Qwen3.8-27B).
+   qwen3_coder vs qwen3_xml pour Qwen3.8-27B, et vérification du chargement AWQ de Gemma 4).
 7. **⏸ Présenter à Samir le tableau de compatibilité final + résultats du test de fumée avant
    le pilote.**
 

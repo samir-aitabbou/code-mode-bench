@@ -6,9 +6,19 @@
 # the verification notes and links.
 #
 # Serving venv:
-#   - models 1-4 (this file): ~/code-mode-bench/.venv-vllm, vLLM 0.32.0,
-#     installed with the cu128 (CUDA 12.8) torch index, same venv and
-#     version for all 4 models so the comparison is fair.
+#   - models 1-4 (this file): ~/code-mode-bench/.venv-vllm, vLLM 0.24.0,
+#     torch 2.11.0+cu128, installed with `uv pip install vllm==0.24.0
+#     --torch-backend=cu128`, same venv and version for all 4 models so
+#     the comparison is fair. torch.cuda.is_available() verified True
+#     before any model download (see PROGRESS.md).
+#   - Why 0.24.0 and not the latest (0.34.0) or the 0.32.0 the Gemma 4
+#     AWQ card reports testing against: vLLM >= 0.27.0 pins
+#     torch==2.13.0, and >= 0.25.0 additionally requires
+#     torchcodec>=0.14 -- neither has a cu128 wheel (the VM's driver
+#     only supports CUDA 12.8, confirmed via nvidia-smi). vLLM 0.24.0 is
+#     the newest release still pinning torch==2.11.0 with no
+#     torchcodec constraint, and both have cu128 wheels. It satisfies
+#     the >=0.19.0 floor for Gemma 4 MoE support.
 #   - Samir's pre-existing ~/venv-vllm (vLLM 0.17.1) is NOT used by this
 #     project and is never modified.
 
@@ -68,8 +78,11 @@ models:
       The model card states the Gemma 4 MoE architecture needs
       vLLM >= 0.19.0 -- NOT supported by Samir's pre-existing
       ~/venv-vllm (0.17.1). This is why models 1-4 are all served from
-      the separate ~/code-mode-bench/.venv-vllm (vLLM 0.32.0, the
-      version the AWQ card reports testing against). Official vLLM
+      the separate ~/code-mode-bench/.venv-vllm (vLLM 0.24.0, see the
+      top-of-file note on why 0.24.0 rather than 0.32.0). A known AWQ
+      loading bug (vllm-project/vllm#40286) was reported against 0.19.1
+      and fixed by PR #40708; not yet confirmed whether that fix is in
+      0.24.0 -- checked empirically at this model's smoke test. Official vLLM
       recipe tool-calling example: --enable-auto-tool-choice
       --tool-call-parser gemma4 --reasoning-parser gemma4
       --chat-template examples/tool_chat_template_gemma4.jinja.
