@@ -2,13 +2,16 @@
 code, and services its tool-call requests over the bridge protocol
 (`cmbench.sandbox.bridge`) by calling `execute_tool`.
 
-Isolation on Linux: no network access (best-effort via `unshare -rn`,
-falling back to running unisolated with a logged warning if that fails
--- e.g. unprivileged user namespaces disabled) and a wall-clock
-timeout. A memory limit is applied inside the child via
-`resource.setrlimit` on POSIX. There is no sandboxing on Windows (used
-only for local development; the real benchmark runs are all on the
-Linux VM).
+Isolation on Linux, tried in order (PLAN.md §3.3): (1) `unshare -rn` for
+a no-network namespace -- on redacted-gpu-vm this fails
+("write failed /proc/self/uid_map: Operation not permitted", i.e.
+unprivileged user namespaces are disabled); (2) `docker run --network
+none` (the user is in the `docker` group, confirmed working); (3) if
+neither works, run unisolated with a logged warning. A wall-clock
+timeout always applies. Memory is limited via `resource.setrlimit` for
+the direct-subprocess paths, or `docker run --memory` for the Docker
+path. There is no sandboxing on Windows (used only for local
+development; the real benchmark runs are all on the Linux VM).
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ ToolExecutor = Callable[[str, dict[str, Any]], Any]
 
 TRUNCATE_CHARS = 8000
 MEMORY_LIMIT_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB
+DOCKER_IMAGE = "python:3.12-slim"
 _SECRET_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 
 
@@ -60,28 +64,56 @@ def _child_env() -> dict[str, str]:
     }
 
 
-def _isolation_prefix() -> tuple[list[str], str]:
-    """Return (command prefix, description) used to launch the child with
-    no network access, or ([], description) if unavailable."""
-    if sys.platform != "linux":
-        return [], "none (non-Linux)"
-    unshare = shutil.which("unshare")
-    if unshare is None:
-        return [], "none (unshare not found)"
+def _probe(cmd: list[str], timeout: float) -> bool:
     try:
-        probe = subprocess.run([unshare, "-rn", "true"], capture_output=True, timeout=5)  # noqa: S603
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout)  # noqa: S603
     except (OSError, subprocess.TimeoutExpired) as exc:
-        logger.warning("unshare -rn probe failed to run (%s); no network isolation", exc)
-        return [], "none (unshare -rn probe errored)"
-    if probe.returncode != 0:
+        logger.warning("isolation probe %s errored: %s", cmd, exc)
+        return False
+    if result.returncode != 0:
         logger.warning(
-            "unshare -rn probe failed (rc=%s, stderr=%s); running sandbox without "
-            "network isolation",
-            probe.returncode,
-            probe.stderr.decode(errors="replace"),
+            "isolation probe %s failed (rc=%s, stderr=%s)",
+            cmd,
+            result.returncode,
+            result.stderr.decode(errors="replace"),
         )
-        return [], "none (unshare -rn probe failed)"
-    return [unshare, "-rn", "--"], "unshare -rn"
+        return False
+    return True
+
+
+def _build_child_command(script: str) -> tuple[list[str], str, bool]:
+    """Return (full argv to launch the sandboxed child, description,
+    uses_docker). Tries, in order: `unshare -rn`, then `docker run
+    --network none`, then no isolation at all."""
+    if sys.platform != "linux":
+        return [sys.executable, "-c", script], "none (non-Linux)", False
+
+    unshare = shutil.which("unshare")
+    if unshare is not None and _probe([unshare, "-rn", "true"], timeout=5):
+        return [unshare, "-rn", "--", sys.executable, "-c", script], "unshare -rn", False
+
+    docker = shutil.which("docker")
+    if docker is not None and _probe(
+        [docker, "run", "--rm", "--network", "none", DOCKER_IMAGE, "true"], timeout=30
+    ):
+        cmd = [
+            docker,
+            "run",
+            "--rm",
+            "-i",
+            "--network",
+            "none",
+            "--memory",
+            str(MEMORY_LIMIT_BYTES),
+            DOCKER_IMAGE,
+            "python3",
+            "-c",
+            script,
+        ]
+        return cmd, f"docker run --network none ({DOCKER_IMAGE})", True
+
+    logger.warning("no sandbox network isolation available (unshare and docker both failed)")
+    return [sys.executable, "-c", script], "none (unshare and docker unavailable)", False
 
 
 def _preexec_limits() -> Callable[[], None] | None:
@@ -107,17 +139,19 @@ def run_sandboxed(
     `tools_module_source`) in a subprocess, servicing its tool calls via
     `execute_tool`, and return its captured output."""
     script = build_child_script(tools_module_source, user_code)
-    isolation_prefix, isolation_desc = _isolation_prefix()
+    command, isolation_desc, uses_docker = _build_child_command(script)
 
     process = subprocess.Popen(  # noqa: S603
-        [*isolation_prefix, sys.executable, "-c", script],
+        command,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         bufsize=1,
         env=_child_env(),
-        preexec_fn=_preexec_limits(),
+        # Docker's own --memory flag limits the container; applying a
+        # POSIX rlimit here would only constrain the `docker` CLI client.
+        preexec_fn=None if uses_docker else _preexec_limits(),
     )
     assert process.stdin is not None
     assert process.stdout is not None
