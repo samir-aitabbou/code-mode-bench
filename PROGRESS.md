@@ -232,6 +232,31 @@
   **À trancher avec Samir avant d'aller plus loin — 2 modèles sur 4 potentiellement
   inutilisables sur cette VM.**
 
+- **Investigation complémentaire (après accord de Samir pour chercher une quantification de
+  remplacement) : le même charabia apparaît avec `--quantization compressed-tensors` forcé
+  explicitement** (au lieu de la détection automatique) — élimine l'hypothèse d'une mauvaise
+  détection de format. Sortie identique au token près (déterministe, `temperature=0`),
+  confirmant que ce n'est pas un problème de flag.
+  - Recherche HF de dépôts de remplacement : `avyukth/Qwen3.8-27B-AWQ-INT4` (18G, tient dans le
+    budget) et `barrydeen/Qwen3.8-27B-AWQ-4bit` (27,8G, trop gros) utilisent **tous les deux**
+    le même format `compressed-tensors` (même famille de chargeur que RedHatAI) — donc pas de
+    piste évidente pour éviter le bug juste en changeant de dépôt.
+  - **Hypothèse retenue, cohérente avec toutes les observations : même blocage que Gemma 4.**
+    La fiche officielle de Qwen3.8-27B (notée dès le départ dans `configs/models.yaml`) exige
+    `vLLM >= 0.17.0` **et** `transformers >= 5.8.0`. vLLM 0.19.0 (notre version, floor pour
+    Gemma 4) épingle `transformers<5`. L'architecture hybride de Qwen3.8-27B (16 couches
+    full-attention + 48 couches Gated DeltaNet, un type de couche récent) a probablement une
+    implémentation native dans vLLM 0.19.0 qui dépend de comportements/API seulement présents
+    dans transformers≥5.8 — contrairement à Gemma 4 (erreur immédiate, architecture non
+    reconnue), ici le chargement réussit et le modèle tourne (vite, formes correctes) mais
+    produit un calcul numériquement faux : pas de crash, juste un résultat incohérent. Cela
+    expliquerait tous les faits observés (rapide, déterministe, indépendant de
+    `--enforce-eager`, indépendant du flag `--quantization`).
+    **Donc : changer de dépôt de quantification ne réglerait rien, puisque le problème serait
+    dans l'implémentation de l'architecture elle-même, pas dans les poids.** Même mur que
+    Gemma 4 (transformers≥5 vs CUDA 12.8 de cette VM), pour une raison différente (support
+    d'architecture vs version de classe de modèle).
+
 ## Prochaine étape
 
 1. **En cours** : test de fumée Qwen3.8-27B-INT4 (serveur démarré, `gpu_memory_utilization=0.87`) —
