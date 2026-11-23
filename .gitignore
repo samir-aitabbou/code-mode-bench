@@ -31,3 +31,6 @@ results/vllm_*.log
 Thumbs.db
 .idea/
 .vscode/
+
+# Scratch space for one-off investigation scripts, never a deliverable
+.pilot-traces/
