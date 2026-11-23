@@ -24,6 +24,7 @@ from cmbench.mcp_server.server import build_server
 from cmbench.metrics import gpu_cost_usd
 from cmbench.modes.classic import run_classic_trial
 from cmbench.modes.codemode import run_codemode_trial
+from cmbench.modes.common import TrialAborted
 from cmbench.providers.base import ChatMessage, Provider, UsageMissingError
 from cmbench.tasks.graders import grade_task
 from cmbench.tasks.loader import Task, load_tasks
@@ -43,6 +44,7 @@ FAILURE_TYPES = frozenset(
         "wrong_answer",
         "tool_error",
         "code_error",
+        "provider_error",
         "timeout",
         "max_turns",
         "context_overflow",
@@ -165,7 +167,7 @@ def make_tool_executor(server: Any) -> Any:
     return execute_tool
 
 
-def _is_context_overflow(exc: Exception) -> bool:
+def _is_context_overflow(exc: BaseException) -> bool:
     message = str(exc).lower()
     return any(marker in message for marker in _CONTEXT_OVERFLOW_MARKERS)
 
@@ -252,8 +254,56 @@ def run_trial(
             ),
             [],
         )
-    except UsageMissingError as exc:
+    except TrialAborted as exc:
+        # provider.chat() raised mid-trial (classic.py/codemode.py always
+        # wrap this as TrialAborted -- see modes/common.py). Unlike the
+        # old behaviour (every counter zeroed, trace always empty), use
+        # the partial outcome so failed trials stay reviewable: this is
+        # what CLAUDE.md's consistency check and the report's failure
+        # analysis both need traces for.
         pool.shutdown(wait=False)
+        # Always raised as `raise TrialAborted(outcome) from exc` (see
+        # modes/common.py), so __cause__ is never actually None.
+        assert exc.__cause__ is not None
+        cause: BaseException = exc.__cause__
+        partial = exc.outcome
+        wall = time.monotonic() - start
+        if isinstance(cause, UsageMissingError):
+            return (
+                TrialRecord(
+                    trial_id=spec.trial_id,
+                    model_id=spec.model_id,
+                    mode=spec.mode,
+                    task_id=spec.task_id,
+                    tool_count=spec.tool_count,
+                    rep_index=spec.rep_index,
+                    timestamp=timestamp,
+                    valid=False,
+                    success=False,
+                    failure_type=None,
+                    num_requests=partial.num_requests,
+                    num_tool_calls=partial.num_tool_calls,
+                    num_code_executions=getattr(partial, "num_code_executions", 0),
+                    prompt_tokens=partial.total_usage.prompt_tokens,
+                    completion_tokens=partial.total_usage.completion_tokens,
+                    total_tokens=partial.total_usage.total_tokens,
+                    latency_total_s=sum(partial.per_request_latencies),
+                    throughput_tokens_per_s=0.0,
+                    gpu_seconds=wall,
+                    cost_usd_estimate=gpu_cost_usd(wall, gpu_hourly_usd=gpu_hourly_usd),
+                    final_answer_text=None,
+                    expected=None,
+                    detail=str(cause),
+                ),
+                partial.transcript,
+            )
+        # "context_overflow" is distinguished from a generic provider-side
+        # failure (a malformed tool call the parser rejected, a client-side
+        # request timeout, a 5xx from vLLM, ...). Neither is a genuine MCP
+        # tool-execution error (that case is "tool_error"/"code_error" via
+        # had_error + max_turns below) -- mislabeling them that way would
+        # hide a real source of failures behind a misleading name.
+        failure_type = "context_overflow" if _is_context_overflow(cause) else "provider_error"
         return (
             TrialRecord(
                 trial_id=spec.trial_id,
@@ -263,29 +313,31 @@ def run_trial(
                 tool_count=spec.tool_count,
                 rep_index=spec.rep_index,
                 timestamp=timestamp,
-                valid=False,
+                valid=True,
                 success=False,
-                failure_type=None,
-                num_requests=0,
-                num_tool_calls=0,
-                num_code_executions=0,
-                prompt_tokens=0,
-                completion_tokens=0,
-                total_tokens=0,
-                latency_total_s=0.0,
+                failure_type=failure_type,
+                num_requests=partial.num_requests,
+                num_tool_calls=partial.num_tool_calls,
+                num_code_executions=getattr(partial, "num_code_executions", 0),
+                prompt_tokens=partial.total_usage.prompt_tokens,
+                completion_tokens=partial.total_usage.completion_tokens,
+                total_tokens=partial.total_usage.total_tokens,
+                latency_total_s=sum(partial.per_request_latencies),
                 throughput_tokens_per_s=0.0,
-                gpu_seconds=0.0,
-                cost_usd_estimate=0.0,
+                gpu_seconds=wall,
+                cost_usd_estimate=gpu_cost_usd(wall, gpu_hourly_usd=gpu_hourly_usd),
                 final_answer_text=None,
                 expected=None,
-                detail=str(exc),
+                detail=str(cause),
             ),
-            [],
+            partial.transcript,
         )
-    except Exception as exc:  # noqa: BLE001 -- classified below, never silently dropped
+    except Exception as exc:  # noqa: BLE001 -- unexpected (not from provider.chat(),
+        # which is always wrapped as TrialAborted); classified generically,
+        # never silently dropped.
         pool.shutdown(wait=False)
         wall = time.monotonic() - start
-        failure_type = "context_overflow" if _is_context_overflow(exc) else "tool_error"
+        failure_type = "context_overflow" if _is_context_overflow(exc) else "provider_error"
         return (
             TrialRecord(
                 trial_id=spec.trial_id,

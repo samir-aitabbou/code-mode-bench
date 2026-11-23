@@ -174,7 +174,9 @@ def test_run_trial_usage_missing_marks_invalid(tmp_path: Path, seeded_db: Path) 
 
     assert not record.valid
     assert not record.success
-    assert transcript == []
+    # The partial transcript (system + user messages, no turns completed
+    # yet) is preserved rather than discarded -- see modes.common.TrialAborted.
+    assert [m.role for m in transcript] == ["system", "user"]
 
 
 def test_run_trial_context_overflow_classified(tmp_path: Path, seeded_db: Path) -> None:

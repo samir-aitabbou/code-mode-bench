@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from cmbench.modes.common import FINAL_ANSWER_MARKER, REMINDER_TEXT
+from cmbench.modes.common import FINAL_ANSWER_MARKER, REMINDER_TEXT, TrialAborted
 from cmbench.providers.base import ChatMessage, Provider, ToolSpec, Usage
 
 logger = logging.getLogger(__name__)
@@ -41,9 +41,10 @@ def run_classic_trial(
     temperature: float = 0.0,
 ) -> TrialOutcome:
     """Run one classic-mode trial to completion (final answer or
-    max_turns). Exceptions from `provider.chat` (e.g. a context-length
-    error from vLLM) propagate to the caller, which is responsible for
-    classifying the failure (see `cmbench.runner`)."""
+    max_turns). An exception from `provider.chat` (e.g. a context-length
+    error from vLLM) is re-raised as `TrialAborted`, carrying the partial
+    outcome so far; the caller classifies the failure (see
+    `cmbench.runner`)."""
     messages: list[ChatMessage] = [
         ChatMessage(role="system", content=system_prompt),
         ChatMessage(role="user", content=task_prompt),
@@ -51,7 +52,11 @@ def run_classic_trial(
     outcome = TrialOutcome(final_answer_text=None)
 
     for _turn in range(max_turns):
-        response = provider.chat(messages, tools=tools, temperature=temperature)
+        try:
+            response = provider.chat(messages, tools=tools, temperature=temperature)
+        except Exception as exc:
+            outcome.transcript = messages
+            raise TrialAborted(outcome) from exc
         outcome.num_requests += 1
         outcome.total_usage = Usage(
             prompt_tokens=outcome.total_usage.prompt_tokens + response.usage.prompt_tokens,

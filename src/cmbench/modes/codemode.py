@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from cmbench.modes.common import FINAL_ANSWER_MARKER, REMINDER_TEXT
+from cmbench.modes.common import FINAL_ANSWER_MARKER, REMINDER_TEXT, TrialAborted
 from cmbench.modes.typed_api import generate_tools_module
 from cmbench.providers.base import ChatMessage, Provider, ToolSpec, Usage
 from cmbench.sandbox.runner import SandboxResult, ToolExecutor, run_sandboxed
@@ -69,8 +69,9 @@ def run_codemode_trial(
     max_code_exec_seconds: float = 120.0,
 ) -> TrialOutcome:
     """Run one codemode-mode trial to completion (final answer or
-    max_turns). Exceptions from `provider.chat` propagate to the caller
-    (see `cmbench.runner`), same as in classic mode."""
+    max_turns). An exception from `provider.chat` is re-raised as
+    `TrialAborted` carrying the partial outcome, same as in classic mode
+    (see `cmbench.runner`)."""
     tools_module_source = generate_tools_module(mcp_tools)
     system_with_api = (
         f"{system_prompt}\n\n"
@@ -86,7 +87,13 @@ def run_codemode_trial(
     outcome = TrialOutcome(final_answer_text=None)
 
     for _turn in range(max_turns):
-        response = provider.chat(messages, tools=[EXECUTE_PYTHON_TOOL], temperature=temperature)
+        try:
+            response = provider.chat(
+                messages, tools=[EXECUTE_PYTHON_TOOL], temperature=temperature
+            )
+        except Exception as exc:
+            outcome.transcript = messages
+            raise TrialAborted(outcome) from exc
         outcome.num_requests += 1
         outcome.total_usage = Usage(
             prompt_tokens=outcome.total_usage.prompt_tokens + response.usage.prompt_tokens,
