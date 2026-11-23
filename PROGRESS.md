@@ -257,15 +257,29 @@
     Gemma 4 (transformers≥5 vs CUDA 12.8 de cette VM), pour une raison différente (support
     d'architecture vs version de classe de modèle).
 
+- **Décision de Samir (2026-11-23) : Qwen3.8-27B-INT4 est abandonné aussi.** Même mur que
+  Gemma 4 (voir ci-dessus), confirmé après investigation complémentaire (flag de
+  quantification forcé, 2 dépôts de remplacement vérifiés). **Le benchmark se fait avec 2
+  modèles : gpt-oss-20b et Qwen3.5-9B-FP8-dynamic.** `configs/models.yaml` et
+  `configs/experiment.yaml` mis à jour (280 essais au total au lieu de 560/420). Processus de
+  diagnostic nettoyés, VRAM confirmée libre (1 MiB) à chaque étape.
+
 ## Prochaine étape
 
-1. **En cours** : test de fumée Qwen3.8-27B-INT4 (serveur démarré, `gpu_memory_utilization=0.87`) —
-   tester `qwen3_coder` (configuré actuellement) puis, s'il échoue sur le parsing des tool
-   calls, basculer sur `qwen3_xml` et retester ; noter le gagnant dans `configs/models.yaml`
-   et ici.
-2. Arrêter le serveur vLLM Qwen3.8-27B, vérifier que la VRAM se libère (procédure CLAUDE.md §4).
-3. **⏸ Présenter à Samir le tableau de compatibilité final (3 modèles OK, Gemma 4 abandonné)
-   + résultats des tests de fumée avant le pilote.**
+1. **Tableau de compatibilité final : 2 modèles sur 4 fonctionnels.**
+
+   | Modèle | Statut | Détail |
+   |---|---|---|
+   | gpt-oss-20b | ✅ OK | Smoke test passé (classic + codemode, T1) |
+   | Qwen3.5-9B-FP8-dynamic | ✅ OK | Smoke test passé, après contournement du tokenizer |
+   | Gemma 4 26B-A4B | ❌ Abandonné | `transformers>=5.0` requis, incompatible avec vLLM utilisable sur ce GPU (CUDA 12.8 max) |
+   | Qwen3.8-27B-INT4 | ❌ Abandonné | Même mur (`transformers>=5.8.0`) ; charge et tourne mais calcule faux (charabia déterministe), confirmé indépendant du quantization flag et de `--enforce-eager` |
+
+2. **⏸ Présenter à Samir le pilote** (1 répétition de toutes les tâches, 2 modèles, 2 modes —
+   voir CLAUDE.md §4 étape 8) avant de lancer la série complète (280 essais).
+3. Avant le pilote : relancer un test de fumée propre sur gpt-oss-20b et Qwen3.5-9B avec le
+   runner corrigé (timeout 600s/120s désormais réellement effectif — voir le bug corrigé
+   plus haut) pour confirmer qu'ils ne sont pas affectés par un problème similaire.
 
 ## Commandes utiles
 

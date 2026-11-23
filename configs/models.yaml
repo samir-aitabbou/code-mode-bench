@@ -30,17 +30,37 @@
 #   - Samir's pre-existing ~/venv-vllm (vLLM 0.17.1) is NOT used by this
 #     project and is never modified.
 
-# Gemma 4 26B-A4B (axteam/gemma-4-26B-A4B-AWQ-4bit) was DROPPED on 2026-11-22,
-# with Samir's explicit approval, after a confirmed hard dependency
-# incompatibility: the Gemma 4 MoE architecture requires transformers>=5.0,
-# but every vLLM version that can actually run on this VM's GPU (driver
-# capped at CUDA 12.8) pins transformers<5 (see the vLLM-version
-# investigation above and PROGRESS.md for the full empirical trail --
-# vLLM >=0.24.0 ships transformers>=5 but also a native extension linked
-# against CUDA 13, which this driver cannot use either way). No
-# pip-installable combination of vLLM + transformers satisfies both
-# constraints on this hardware. The benchmark proceeds with the 3 remaining
-# models. See PROGRESS.md and REPORT.md (Deviations from plan) for details.
+# Gemma 4 26B-A4B (axteam/gemma-4-26B-A4B-AWQ-4bit) and Qwen3.8-27B-INT4
+# (RedHatAI/Qwen3.8-27B-INT4) were DROPPED on 2026-11-22/23, with Samir's
+# explicit approval each time, after confirmed hard dependency/architecture
+# incompatibilities -- both ultimately the same wall: this VM's GPU driver
+# (570.124.06) tops out at CUDA 12.8, so the only vLLM version that can
+# actually run on it (0.19.0) pins transformers<5; both models' official
+# recipes require transformers>=5.0/5.8.0, which vLLM>=0.24.0 ships but
+# bundled with a native extension linked against CUDA 13 that this driver
+# cannot use either way (see the vLLM-version investigation above).
+#   - Gemma 4: hard crash at load, "Transformers does not recognize this
+#     architecture" -- an explicit, immediate failure.
+#   - Qwen3.8-27B: NO crash. Loads and runs at full speed with correctly
+#     shaped output, but produces consistently incoherent, deterministic
+#     garbage for every prompt tested (confirmed via direct curl calls,
+#     bypassing the harness entirely) -- with and without --enforce-eager,
+#     and with --quantization auto-detected or forced to
+#     compressed-tensors explicitly (ruling out a format-detection bug).
+#     Two replacement HF quantizations were checked (avyukth/Qwen3.8-27B-
+#     AWQ-INT4, barrydeen/Qwen3.8-27B-AWQ-4bit); both use the same
+#     compressed-tensors loader family, so switching repos would not have
+#     avoided whatever is actually broken. Leading hypothesis: the 16
+#     full-attention + 48 Gated DeltaNet hybrid-attention architecture has
+#     a native vLLM implementation that silently depends on
+#     transformers>=5.8 behavior -- unlike Gemma 4's hard failure, this
+#     one fails numerically, not structurally. Not root-caused with 100%
+#     certainty, but no actionable fix was found within this GPU's
+#     constraints. See PROGRESS.md for the full empirical trail.
+# No pip-installable combination of vLLM + transformers satisfies both
+# "GPU usable" and "either model's architecture requirements" on this
+# hardware. The benchmark proceeds with the 2 remaining models. See
+# PROGRESS.md and REPORT.md (Deviations from plan) for details.
 
 models:
   - id: gpt-oss-20b
@@ -90,37 +110,6 @@ models:
       base repo instead (Qwen/Qwen3.5-9B, tokenizer_class=Qwen2Tokenizer)
       via --tokenizer -- the quantized repo's weights are unaffected.
 
-  # gemma-4-26b-a4b: DROPPED on 2026-11-22 (see note above the `models:`
-  # key). google/gemma-4 MoE architecture needs transformers>=5.0, which
-  # conflicts with every vLLM version that can run on this VM's GPU.
-
-  - id: qwen3.8-27b
-    order: 3
-    repo_id: RedHatAI/Qwen3.8-27B-INT4
-    base_repo_id: Qwen/Qwen3.8-27B
-    quantization: int4-awq-smoothed-w4a16
-    served_model_name: qwen3.8-27b
-    tool_call_parser: qwen3_coder  # see PROGRESS.md: tested against qwen3_xml at smoke test, winner recorded there
-    reasoning_parser: qwen3
-    enable_auto_tool_choice: true
-    trust_remote_code: true
-    max_model_len: 16384
-    # 0.85 left KV cache 30 MB short (0.64 vs 0.67 GiB needed); 0.90 overshot the
-    # GPU's actual usable memory (20.84 GiB, not the raw 23.76 GiB -- this vGPU
-    # profile reserves ~2.9 GiB nvidia-smi doesn't show as "used"). 0.87 fits
-    # comfortably inside the real ceiling with enough KV cache headroom.
-    gpu_memory_utilization: 0.87
-    notes: >
-      Dense 27B, hybrid attention (16 full-attention + 48 Gated
-      DeltaNet layers), AWQ-smoothed W4A16 GPTQ scheme (compressed-tensors),
-      FP8 KV cache. Official vLLM recipe
-      (recipes.vllm.ai/Qwen/Qwen3.8-27B?variant=int4) requires
-      vLLM >= 0.17.0 and transformers >= 5.8.0, and gives:
-      --tensor-parallel-size 1 --enable-auto-tool-choice
-      --tool-call-parser qwen3_coder --reasoning-parser qwen3
-      --mm-encoder-tp-mode data. The RedHatAI model card instead shows
-      --tool-call-parser qwen3_xml. The two sources disagree; both are
-      smoke-tested and the one that actually parses tool calls
-      correctly is kept (recorded in PROGRESS.md and REPORT.md).
-      barrydeen/Qwen3.8-27B-AWQ-4bit (true AWQ W4A16) was rejected: 27.8
-      GB on disk, too large for this 24GB GPU alongside KV cache.
+  # gemma-4-26b-a4b and qwen3.8-27b: DROPPED (see the note above the
+  # `models:` key for the full story). The benchmark runs with these 2
+  # models only.
