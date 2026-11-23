@@ -313,7 +313,75 @@ le pilote n'a pas de données directes)** :
 - **Total estimé : ~6,5h** de calcul GPU (+ quelques minutes de changement de modèle/VRAM).
   Tient largement en une nuit avec `run_all.sh` dans `tmux`.
 
-**⏸ En attente du feu vert de Samir pour lancer la série complète (280 essais).**
+## Enquête d'équité demandée par Samir avant la série complète (2026-11-23)
+
+Samir a demandé de vérifier 4 points avant de lancer la série, avec preuves. Résumé des
+preuves et des correctifs (détails complets dans l'historique de session) :
+
+**1. Erreurs d'outil en classic** : confirmé par le code et par trace que le message
+d'erreur d'un outil est bien renvoyé au modèle, qui réessaie (pas d'arrêt à la première
+erreur). Les échecs classic observés sur T3/T5 ne sont pas des erreurs d'outil mais des
+pannes côté serveur/réseau — reclassées `provider_error` au lieu du `tool_error` trompeur
+d'avant.
+
+**2. Dépassement de contexte T4** : confirmé que `list_invoices(status=...)` existe et est
+utilisé correctement par le modèle. Le dépassement vient du volume brut renvoyé par un seul
+appel filtré (107 696 caractères, ~900 factures) et non d'un filtre manquant — conforme au
+protocole voulu (classic doit faire entrer les lignes brutes dans son contexte, Code Mode
+non).
+
+**3. Timeout T5 gpt-oss** : diagnostic sans plafond de temps → le modèle ne boucle pas et ne
+bute pas sur un résultat géant ; il passe ~6 tours consécutifs à ~100s/~11 500 tokens de
+raisonnement caché sans réponse visible, puis produit un `FINAL_ANSWER` correct au tour 8,
+~670s au total — juste au-dessus de l'ancien plafond de 600s. Le qwen3.5-9b T5 classic
+« tool_error » était en fait un timeout réseau par requête (120s) alors que seulement 63,5s
+avaient été utilisées sur le budget de l'essai.
+
+**Correctif de biais** : les deux limites de temps (`max_trial_seconds`,
+`request_timeout_s`) étaient trop serrées pour classic sur les tâches lourdes en données,
+risquant de compter comme échecs des essais qui auraient réussi. Avec l'accord de Samir,
+remontées à 900s / 400s (ce dernier ajusté deux fois : 120→180→400s, car qwen3.5-9b butait
+encore à 180s avant de réussir à 400s — ~191s pour la requête la plus lente, confirmant une
+génération lente mais progressive, pas un blocage). Les deux valeurs sont maintenant lues
+depuis `configs/experiment.yaml` (`limits.max_trial_seconds`/`limits.request_timeout_s`) au
+lieu d'être une constante Python figée — `max_trial_seconds` existait déjà dans le YAML mais
+n'était lue par aucun code avant ce correctif.
+
+**Bug trouvé en cours de route (pas spécifique à classic, corrigé)** : un essai abandonné
+après timeout continuait de tourner en arrière-plan (jusqu'à 15 tours de plus),
+consommant du GPU en même temps que l'essai suivant (observé : 2 requêtes concurrentes,
+cache KV grimpant à 86%+). Corrigé par un thread démon + signal d'annulation vérifié en
+haut de chaque tour (`classic.py`/`codemode.py`), qui borne le dépassement à une requête en
+vol au lieu de 15. Testé (régression ajoutée dans `tests/test_runner.py`), poussé.
+
+**4. 3e modèle proposé puis abandonné** : `Qwen/Qwen3-32B-AWQ` (dense, attention standard,
+sans le risque d'architecture de Qwen3.8-27B) testé avec l'accord de Samir. Charge
+correctement (19 Go sur disque) mais ses poids seuls consomment ~18,6 Go de nos ~20,8 Go
+utilisables, ne laissant qu'environ 2,3 Go pour le cache KV — un `max_model_len` réaliste
+d'environ 9000 tokens, bien en dessous des ~21 000-46 000 tokens de prompt déjà observés sur
+T3/T4/T5. Abandonné (accord de Samir) : ce serait un biais de VRAM, pas une mesure valide de
+ses capacités. La série reste à 2 modèles.
+
+**Pilote refait pour T3/T4/T5 (tâches concernées) après les correctifs** :
+
+```
+gpt-oss-20b:   T3 classic FAIL(provider_error, bug connu du parseur gpt-oss, pas une régression)
+               T3 codemode FAIL(provider_error, même bug, confirme qu'il n'est pas spécifique à classic)
+               T4 classic FAIL(context_overflow, attendu) · T4 codemode FAIL(provider_error)
+               T5 classic FAIL(wrong_answer — échec honnête, plus de faux timeout)
+               T5 codemode OK
+qwen3.5-9b:    T3 classic OK (142,1s) · T3 codemode OK (38,0s)
+               T4 classic FAIL(context_overflow, attendu) · T4 codemode OK (130,7s)
+               T5 classic OK (255,0s, 8 requêtes) · T5 codemode OK (45,8s)
+```
+
+Résultats complets fusionnés dans `results/pilot_2026-11-23/*.jsonl` (archive, pas la série
+finale — `results/raw/` a été vidé pour la série réelle). Plus aucun `timeout` artefact de
+harness dans ce nouveau pilote ; les échecs restants sont soit le comportement intended du
+protocole (T4 classic), soit un vrai échec du modèle (T5 gpt-oss), soit un bug connu et
+documenté du parseur gpt-oss (indépendant du mode).
+
+**⏸ En attente du feu vert de Samir pour lancer la série complète (280 essais, 2 modèles).**
 
 ## Commandes utiles
 

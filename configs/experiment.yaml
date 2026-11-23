@@ -24,11 +24,9 @@ limits:
   # Raised again 180s -> 400s the same day: qwen3.5-9b's T5-classic 8th
   # request still exceeded 180s (same "Request timed out." at the same
   # 7-requests/61757-tokens/63.6s-so-far point as before 120->180).
-  # Still comfortably under the 900s trial budget (only ~64s used of
-  # it by the time this request starts), so there is ample room to
-  # confirm whether this is slow-but-progressing generation (a large
-  # batch of tool calls + qwen3 reasoning over the accumulated context)
-  # or a genuine hang -- see PROGRESS.md for the outcome.
+  # Confirmed slow-but-progressing, not a hang: at 400s the same
+  # request succeeded, taking ~191s (trial finished at 255.0s total,
+  # 8 requests, well under the 900s trial budget).
   request_timeout_s: 400
   truncate_output_chars: 8000
 
