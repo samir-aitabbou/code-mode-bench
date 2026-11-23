@@ -193,6 +193,45 @@
   `configs/models.yaml` et `configs/experiment.yaml` mis à jour (3 modèles, 420 essais au
   total au lieu de 560). À documenter dans `REPORT.md` §8 (Deviations from plan).
 
+- **Bug du harness trouvé et corrigé : la limite de 600s par essai (`TRIAL_WALL_CLOCK_LIMIT_S`)
+  ne fonctionnait pas.** `run_trial` entourait l'appel au fournisseur d'un
+  `with ThreadPoolExecutor(...) as pool:` ; `future.result(timeout=600)` levait bien
+  `TimeoutError`, mais la sortie du bloc `with` appelait `pool.shutdown(wait=True)`, qui
+  **attendait quand même** que le thread abandonné (et sa requête HTTP en cours vers vLLM)
+  se termine — rendant la limite inopérante en pratique. Repéré sur le test de fumée
+  Qwen3.8-27B : le process a tourné 100+ minutes au lieu d'être coupé à 10 minutes.
+  Corrigé (`src/cmbench/runner.py`) : plus de `with`, `pool.shutdown(wait=False)` sur chaque
+  chemin de sortie. 84 tests passent. Deuxième correctif lié : un timeout HTTP côté client
+  (`OpenAICompatProvider.request_timeout_s`) ajouté en filet de sécurité — mis d'abord à 900s
+  (au-dessus de la limite d'essai, donc inutile), puis corrigé à **120s** après avoir observé
+  qu'une requête abandonnée continuait de tourner sur vLLM en parallèle du prochain essai
+  (`Running: 2 reqs`, KV cache grimpant à 86% en moins d'une minute — risque réel d'OOM sur
+  une longue série). Les deux commits sont poussés sur la VM.
+
+- **Découverte critique : Qwen3.8-27B-INT4 (RedHatAI) génère du charabia incohérent sous
+  vLLM 0.19.0, quel que soit `--enforce-eager` ou non.** Le re-test du test de fumée (après
+  les deux correctifs ci-dessus) échouait encore par timeout sur les deux essais (classic et
+  codemode), même avec 120s par requête et 2 tentatives. Diagnostic en `curl` direct (hors
+  harness, prompts triviaux type "2+2 ?", "capitale de la France ?", `max_tokens=30`,
+  `temperature=0`) : le serveur répond **vite** (~1,3s) mais le champ `reasoning` est un
+  mélange incohérent de caractères latins/chinois/arabes sans aucun sens, systématiquement,
+  sur 5 générations indépendantes. Testé aussi en désactivant `--enforce-eager` (CUDA graphs
+  réactivés, serveur de diagnostic séparé, port identique, modèle arrêté/relancé proprement) :
+  **même résultat, charabia identique.** Donc : (a) ce n'est pas un problème de timeout/lenteur
+  — le modèle ne produit jamais de token de fin cohérent, d'où les essais qui épuisent leur
+  budget de tours/temps à chaque fois ; (b) ce n'est pas `--enforce-eager` qui casse
+  l'architecture hybride (16 couches full-attention + 48 Gated DeltaNet) ; (c) c'est très
+  probablement un bug de chargement/déquantification spécifique à ce schéma INT4
+  AWQ-smoothed-W4A16 GPTQ (compressed-tensors) sous vLLM 0.19.0 — par analogie avec le bug AWQ
+  connu déjà noté pour Gemma 4 (vllm-project/vllm#40286), mais sur un schéma de quantification
+  différent, donc pas nécessairement le même bug exact. **Pas encore de piste de correction
+  confirmée.** VRAM libérée après le diagnostic (serveur de diag + process `VLLM::EngineCore`
+  orphelin tué manuellement — `kill` du process principal n'avait pas suffi, bien noter ça
+  pour `stop_vllm.sh` : vérifier qu'il n'y a pas de sous-processus `VLLM::EngineCore` orphelin
+  après un arrêt).
+  **À trancher avec Samir avant d'aller plus loin — 2 modèles sur 4 potentiellement
+  inutilisables sur cette VM.**
+
 ## Prochaine étape
 
 1. **En cours** : test de fumée Qwen3.8-27B-INT4 (serveur démarré, `gpu_memory_utilization=0.87`) —
