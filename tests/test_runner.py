@@ -3,9 +3,6 @@ import sqlite3
 import time
 from pathlib import Path
 
-import pytest
-
-import cmbench.runner as runner_module
 from cmbench.providers.base import UsageMissingError
 from cmbench.runner import (
     TrialSpec,
@@ -184,16 +181,15 @@ def test_run_trial_usage_missing_marks_invalid(tmp_path: Path, seeded_db: Path) 
 
 
 def test_run_trial_timeout_returns_promptly_and_stops_the_abandoned_thread(
-    tmp_path: Path, seeded_db: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, seeded_db: Path
 ) -> None:
     """Regression test for the bug where an abandoned trial kept running
     in the background well past the wall-clock limit (observed: 100+
     minutes past a 600s budget), because ThreadPoolExecutor.shutdown()
     blocked on it and nothing told it to stop. run_trial must return
-    close to the (monkeypatched, short) limit, and the background
+    close to the (short, explicitly passed) limit, and the background
     thread must stop making calls shortly after -- not keep going for
     every one of its scripted responses."""
-    monkeypatch.setattr(runner_module, "TRIAL_WALL_CLOCK_LIMIT_S", 0.2)
     provider = StubProvider(
         responses=[assistant_tool_call("get_customer", {"customer_id": "C0001"}) for _ in range(8)],
         delay_seconds=0.3,
@@ -202,7 +198,9 @@ def test_run_trial_timeout_returns_promptly_and_stops_the_abandoned_thread(
     tasks = load_tasks()
 
     start = time.monotonic()
-    record, transcript = run_trial(spec, provider, tasks, seeded_db, tmp_path, max_turns=8)
+    record, transcript = run_trial(
+        spec, provider, tasks, seeded_db, tmp_path, max_turns=8, trial_wall_clock_limit_s=0.2
+    )
     elapsed = time.monotonic() - start
 
     assert record.failure_type == "timeout"

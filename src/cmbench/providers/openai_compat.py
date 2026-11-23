@@ -68,8 +68,8 @@ class OpenAICompatProvider(Provider):
     model: str
     api_key: str = "EMPTY"
     # Bounds a single chat-completion call. Deliberately well below the
-    # runner's 600s trial wall-clock limit (not above it, as a first
-    # attempt at this had it): when the runner abandons a trial at 600s,
+    # runner's trial wall-clock limit (not above it, as a first attempt
+    # at this had it, at 900s/120s): when the runner abandons a trial,
     # the underlying HTTP request is NOT cancelled server-side (the
     # OpenAI client has no cancellation signal once the call is sent) --
     # it keeps running against vLLM and competing for KV cache with the
@@ -77,8 +77,17 @@ class OpenAICompatProvider(Provider):
     # ran concurrently with the next trial's, "Running: 2 reqs", GPU KV
     # cache usage climbing past 86% in under a minute. A lower per-request
     # timeout closes the stalled connection itself well before that,
-    # bounding (not eliminating -- see PROGRESS.md) the leak window.
-    request_timeout_s: float = 120.0
+    # bounding (not eliminating -- see PROGRESS.md and runner.py's
+    # cancel_event) the leak window.
+    #
+    # Raised 120s -> 180s on 2026-11-23: qwen3.5-9b's classic-mode T5
+    # loop (one list_orders call per Electronics product, since
+    # list_orders has no category filter by design) hit this ceiling on
+    # its 8th request at only 184s of total trial time -- nowhere near
+    # the trial-level budget -- while still making genuine progress.
+    # The default here is overridden by configs/experiment.yaml's
+    # limits.request_timeout_s in the CLI (see cmbench.cli).
+    request_timeout_s: float = 180.0
 
     def __post_init__(self) -> None:
         self._client = OpenAI(

@@ -39,7 +39,9 @@ SYSTEM_PROMPT = (
     "up data."
 )
 
-TRIAL_WALL_CLOCK_LIMIT_S = 600.0
+# Default when not overridden by configs/experiment.yaml's
+# limits.max_trial_seconds (see run_all_trials_for_model).
+TRIAL_WALL_CLOCK_LIMIT_S = 900.0
 FAILURE_TYPES = frozenset(
     {
         "wrong_answer",
@@ -183,6 +185,7 @@ def run_trial(
     max_turns: int = 15,
     max_code_exec_seconds: float = 120.0,
     gpu_hourly_usd: float = 0.50,
+    trial_wall_clock_limit_s: float = TRIAL_WALL_CLOCK_LIMIT_S,
 ) -> tuple[TrialRecord, list[ChatMessage]]:
     """Run one trial end to end and return (record, transcript)."""
     working_db = working_db_dir / f"{spec.trial_id}.db"
@@ -250,7 +253,7 @@ def run_trial(
 
     threading.Thread(target=_run, daemon=True).start()
     try:
-        kind, payload = result_queue.get(timeout=TRIAL_WALL_CLOCK_LIMIT_S)
+        kind, payload = result_queue.get(timeout=trial_wall_clock_limit_s)
     except queue.Empty:
         cancel_event.set()
         wall = time.monotonic() - start
@@ -278,7 +281,7 @@ def run_trial(
                 cost_usd_estimate=gpu_cost_usd(wall, gpu_hourly_usd=gpu_hourly_usd),
                 final_answer_text=None,
                 expected=None,
-                detail=f"trial exceeded the {TRIAL_WALL_CLOCK_LIMIT_S}s wall-clock limit",
+                detail=f"trial exceeded the {trial_wall_clock_limit_s}s wall-clock limit",
             ),
             [],
         )
@@ -501,6 +504,9 @@ def run_all_trials_for_model(
     gpu_hourly_usd = experiment_config.get("gpu_hourly_usd", 0.50)
     max_turns = experiment_config["limits"]["max_turns"]
     max_code_exec_seconds = experiment_config["limits"]["max_code_exec_seconds"]
+    trial_wall_clock_limit_s = experiment_config["limits"].get(
+        "max_trial_seconds", TRIAL_WALL_CLOCK_LIMIT_S
+    )
 
     for spec in specs:
         if spec.trial_id in done:
@@ -516,5 +522,6 @@ def run_all_trials_for_model(
             max_turns=max_turns,
             max_code_exec_seconds=max_code_exec_seconds,
             gpu_hourly_usd=gpu_hourly_usd,
+            trial_wall_clock_limit_s=trial_wall_clock_limit_s,
         )
         writer.append(record, transcript)

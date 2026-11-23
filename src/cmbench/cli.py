@@ -50,9 +50,18 @@ def _model_config(models_config: Path, model_id: str) -> dict[str, Any]:
     raise typer.BadParameter(f"model {model_id!r} not found in {models_config}")
 
 
-def _build_provider(model_id: str, models_config: Path, base_url: str) -> OpenAICompatProvider:
+def _build_provider(
+    model_id: str,
+    models_config: Path,
+    base_url: str,
+    *,
+    request_timeout_s: float | None = None,
+) -> OpenAICompatProvider:
     model = _model_config(models_config, model_id)
-    return OpenAICompatProvider(base_url=base_url, model=model["served_model_name"])
+    kwargs: dict[str, Any] = {"base_url": base_url, "model": model["served_model_name"]}
+    if request_timeout_s is not None:
+        kwargs["request_timeout_s"] = request_timeout_s
+    return OpenAICompatProvider(**kwargs)
 
 
 @app.command()
@@ -83,8 +92,9 @@ def run(
     """Run N repetitions of one (model, mode, task) cell. Used for smoke
     tests and ad-hoc debugging; the full series uses `bench`."""
     _setup_logging()
-    provider = _build_provider(model, models_config, base_url)
     experiment = _load_yaml(experiment_config)
+    request_timeout_s = experiment["limits"].get("request_timeout_s")
+    provider = _build_provider(model, models_config, base_url, request_timeout_s=request_timeout_s)
     tasks = load_tasks()
     writer = ResultsWriter(results_dir / "raw")
     working_dir.mkdir(parents=True, exist_ok=True)
@@ -100,6 +110,7 @@ def run(
             max_turns=experiment["limits"]["max_turns"],
             max_code_exec_seconds=experiment["limits"]["max_code_exec_seconds"],
             gpu_hourly_usd=experiment.get("gpu_hourly_usd", 0.50),
+            trial_wall_clock_limit_s=experiment["limits"].get("max_trial_seconds", 900.0),
         )
         writer.append(record, transcript)
         status = "OK" if record.success else f"FAIL ({record.failure_type})"
@@ -121,8 +132,9 @@ def smoke(
     """1 trial of T1 in each mode -- a quick check that a freshly-served
     model actually works before running the full series."""
     _setup_logging()
-    provider = _build_provider(model, models_config, base_url)
     experiment = _load_yaml(experiment_config)
+    request_timeout_s = experiment["limits"].get("request_timeout_s")
+    provider = _build_provider(model, models_config, base_url, request_timeout_s=request_timeout_s)
     tasks = load_tasks()
     working_dir.mkdir(parents=True, exist_ok=True)
 
@@ -137,6 +149,7 @@ def smoke(
             working_dir,
             max_turns=experiment["limits"]["max_turns"],
             max_code_exec_seconds=experiment["limits"]["max_code_exec_seconds"],
+            trial_wall_clock_limit_s=experiment["limits"].get("max_trial_seconds", 900.0),
         )
         status = "OK" if record.success else f"FAIL ({record.failure_type}: {record.detail})"
         typer.echo(f"[smoke] {model} {mode} T1: {status}")
@@ -161,8 +174,9 @@ def bench(
 ) -> None:
     """Run every planned trial for one model (resumable)."""
     _setup_logging()
-    provider = _build_provider(model, models_config, base_url)
     experiment = _load_yaml(experiment_config)
+    request_timeout_s = experiment["limits"].get("request_timeout_s")
+    provider = _build_provider(model, models_config, base_url, request_timeout_s=request_timeout_s)
     writer = ResultsWriter(results_dir / "raw")
     working_dir.mkdir(parents=True, exist_ok=True)
 

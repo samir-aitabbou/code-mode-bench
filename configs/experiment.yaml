@@ -10,7 +10,18 @@ tasks: [T1, T2, T3, T4, T5, T6]
 limits:
   max_turns: 15
   max_code_exec_seconds: 120
-  max_trial_seconds: 600
+  # Both raised from 600s/120s on 2026-11-23 after the T5 classic
+  # investigation (PROGRESS.md): gpt-oss-20b naturally converges to a
+  # correct FINAL_ANSWER at ~670s (just over the old 600s), and
+  # qwen3.5-9b's per-product-category list_orders loop hit the old
+  # 120s per-request client timeout at 184s of total trial time, well
+  # under budget otherwise. The old values risked counting
+  # classic-mode trials as failures when they were still genuinely
+  # converging -- an artifact of the harness, not a real model
+  # difference, and specifically one that would understate classic's
+  # success rate relative to Code Mode on the data-heavy tasks.
+  max_trial_seconds: 900
+  request_timeout_s: 180
   truncate_output_chars: 8000
 
 vllm:
