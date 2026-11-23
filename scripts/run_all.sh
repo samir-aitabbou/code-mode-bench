@@ -66,7 +66,16 @@ for MODEL_ID in $MODELS; do
 
   log "stopping vLLM for $MODEL_ID"
   write_status "$MODEL_ID" "stopping"
-  bash scripts/stop_vllm.sh 2>&1 | tee -a "$LOG_FILE"
+  if ! bash scripts/stop_vllm.sh 2>&1 | tee -a "$LOG_FILE"; then
+    # CLAUDE.md §0.4: VRAM not freed by a process we started is still
+    # not something to proceed past silently -- the next model's
+    # serve_vllm.sh would likely fail to load anyway (not enough free
+    # VRAM), and that failure would be far more confusing to debug than
+    # stopping here with a clear message.
+    log "VRAM was not freed after stopping $MODEL_ID -- halting run_all.sh (CLAUDE.md §0.4)"
+    write_status "$MODEL_ID" "vram_not_freed"
+    exit 1
+  fi
   write_status "$MODEL_ID" "done"
   log "=== model $MODEL_ID done ==="
 done
