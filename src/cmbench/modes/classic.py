@@ -6,6 +6,7 @@ result returned into its context.
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -39,12 +40,18 @@ def run_classic_trial(
     *,
     max_turns: int = 15,
     temperature: float = 0.0,
+    cancel_event: threading.Event | None = None,
 ) -> TrialOutcome:
     """Run one classic-mode trial to completion (final answer or
     max_turns). An exception from `provider.chat` (e.g. a context-length
     error from vLLM) is re-raised as `TrialAborted`, carrying the partial
     outcome so far; the caller classifies the failure (see
-    `cmbench.runner`)."""
+    `cmbench.runner`). If `cancel_event` is set (the caller gave up
+    waiting on this trial, e.g. after its own wall-clock budget), no new
+    turn is started -- this bounds how long an abandoned trial keeps
+    making requests against vLLM after the caller has stopped watching
+    it, to roughly one more in-flight request rather than up to
+    `max_turns` more."""
     messages: list[ChatMessage] = [
         ChatMessage(role="system", content=system_prompt),
         ChatMessage(role="user", content=task_prompt),
@@ -52,6 +59,11 @@ def run_classic_trial(
     outcome = TrialOutcome(final_answer_text=None)
 
     for _turn in range(max_turns):
+        if cancel_event is not None and cancel_event.is_set():
+            outcome.transcript = messages
+            raise TrialAborted(outcome) from TimeoutError(
+                "trial abandoned: cancel_event set by the caller"
+            )
         try:
             response = provider.chat(messages, tools=tools, temperature=temperature)
         except Exception as exc:

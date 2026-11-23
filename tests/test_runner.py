@@ -1,7 +1,11 @@
 import json
 import sqlite3
+import time
 from pathlib import Path
 
+import pytest
+
+import cmbench.runner as runner_module
 from cmbench.providers.base import UsageMissingError
 from cmbench.runner import (
     TrialSpec,
@@ -177,6 +181,39 @@ def test_run_trial_usage_missing_marks_invalid(tmp_path: Path, seeded_db: Path) 
     # The partial transcript (system + user messages, no turns completed
     # yet) is preserved rather than discarded -- see modes.common.TrialAborted.
     assert [m.role for m in transcript] == ["system", "user"]
+
+
+def test_run_trial_timeout_returns_promptly_and_stops_the_abandoned_thread(
+    tmp_path: Path, seeded_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test for the bug where an abandoned trial kept running
+    in the background well past the wall-clock limit (observed: 100+
+    minutes past a 600s budget), because ThreadPoolExecutor.shutdown()
+    blocked on it and nothing told it to stop. run_trial must return
+    close to the (monkeypatched, short) limit, and the background
+    thread must stop making calls shortly after -- not keep going for
+    every one of its scripted responses."""
+    monkeypatch.setattr(runner_module, "TRIAL_WALL_CLOCK_LIMIT_S", 0.2)
+    provider = StubProvider(
+        responses=[assistant_tool_call("get_customer", {"customer_id": "C0001"}) for _ in range(8)],
+        delay_seconds=0.3,
+    )
+    spec = TrialSpec("gpt-oss-20b", "classic", "T1", 12, 0)
+    tasks = load_tasks()
+
+    start = time.monotonic()
+    record, transcript = run_trial(spec, provider, tasks, seeded_db, tmp_path, max_turns=8)
+    elapsed = time.monotonic() - start
+
+    assert record.failure_type == "timeout"
+    assert transcript == []
+    assert elapsed < 1.0, "run_trial should return near the wall-clock limit, not wait for 8 turns"
+
+    # Give the abandoned (daemon) thread a little more time, then check it
+    # didn't just keep running through every scripted response: the
+    # cancel_event should have stopped it after at most the in-flight call.
+    time.sleep(1.0)
+    assert len(provider.calls) <= 2
 
 
 def test_run_trial_context_overflow_classified(tmp_path: Path, seeded_db: Path) -> None:

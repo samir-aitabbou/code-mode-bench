@@ -7,10 +7,11 @@ JSON line (+ a separate trace file) per trial.
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import json
 import logging
+import queue
 import random
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -195,10 +196,18 @@ def run_trial(
     task = tasks[spec.task_id]
     task_prompt = task.build_prompt()
 
+    cancel_event = threading.Event()
+
     def _invoke() -> Any:
         if spec.mode == "classic":
             return run_classic_trial(
-                provider, SYSTEM_PROMPT, task_prompt, tool_specs, execute_tool, max_turns=max_turns
+                provider,
+                SYSTEM_PROMPT,
+                task_prompt,
+                tool_specs,
+                execute_tool,
+                max_turns=max_turns,
+                cancel_event=cancel_event,
             )
         return run_codemode_trial(
             provider,
@@ -208,23 +217,42 @@ def run_trial(
             execute_tool,
             max_turns=max_turns,
             max_code_exec_seconds=max_code_exec_seconds,
+            cancel_event=cancel_event,
         )
 
     timestamp = datetime.now(UTC).isoformat()
     start = time.monotonic()
-    # Not a `with` block on purpose: ThreadPoolExecutor.__exit__ calls
-    # shutdown(wait=True), which would block until the abandoned worker
-    # thread finishes even after future.result() already raised
-    # TimeoutError -- defeating the wall-clock limit entirely (observed:
-    # a trial ran 100+ minutes past its 600s budget because of this).
-    # shutdown(wait=False) lets this function return promptly; the
-    # orphaned thread (and its still-running vLLM request) is abandoned.
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    # A manual daemon thread + Queue, not ThreadPoolExecutor:
+    # 1. ThreadPoolExecutor.__exit__/shutdown(wait=True) blocks until an
+    #    abandoned worker finishes, even after future.result() already
+    #    raised TimeoutError -- defeating the wall-clock limit entirely
+    #    (observed: a trial ran 100+ minutes past its 600s budget).
+    #    shutdown(wait=False) made this *function* return promptly, but
+    #    the abandoned thread (and its request against vLLM) kept
+    #    running regardless, for up to `max_turns` more turns -- CPython
+    #    joins non-daemon threads at interpreter exit, and in the
+    #    meantime it keeps competing for vLLM's KV cache with whatever
+    #    trial runs next (observed: "Running: 2 reqs", usage climbing
+    #    past 86% within a minute).
+    # 2. `daemon=True` means this process is never blocked waiting for an
+    #    abandoned thread to finish.
+    # 3. `cancel_event` (checked by classic.py/codemode.py at the top of
+    #    each turn) stops the abandoned thread from starting a new turn,
+    #    bounding its extra runtime to roughly one more in-flight request
+    #    rather than up to `max_turns` more.
+    result_queue: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=1)
+
+    def _run() -> None:
+        try:
+            result_queue.put(("ok", _invoke()))
+        except BaseException as exc:  # noqa: BLE001 -- forwarded to the main thread, not swallowed
+            result_queue.put(("error", exc))
+
+    threading.Thread(target=_run, daemon=True).start()
     try:
-        future = pool.submit(_invoke)
-        outcome = future.result(timeout=TRIAL_WALL_CLOCK_LIMIT_S)
-    except concurrent.futures.TimeoutError:
-        pool.shutdown(wait=False)
+        kind, payload = result_queue.get(timeout=TRIAL_WALL_CLOCK_LIMIT_S)
+    except queue.Empty:
+        cancel_event.set()
         wall = time.monotonic() - start
         return (
             TrialRecord(
@@ -254,21 +282,59 @@ def run_trial(
             ),
             [],
         )
-    except TrialAborted as exc:
-        # provider.chat() raised mid-trial (classic.py/codemode.py always
-        # wrap this as TrialAborted -- see modes/common.py). Unlike the
-        # old behaviour (every counter zeroed, trace always empty), use
-        # the partial outcome so failed trials stay reviewable: this is
-        # what CLAUDE.md's consistency check and the report's failure
-        # analysis both need traces for.
-        pool.shutdown(wait=False)
-        # Always raised as `raise TrialAborted(outcome) from exc` (see
-        # modes/common.py), so __cause__ is never actually None.
-        assert exc.__cause__ is not None
-        cause: BaseException = exc.__cause__
-        partial = exc.outcome
+    if kind == "error":
+        exc = payload
         wall = time.monotonic() - start
-        if isinstance(cause, UsageMissingError):
+        if isinstance(exc, TrialAborted):
+            # provider.chat() raised mid-trial (classic.py/codemode.py
+            # always wrap this as TrialAborted -- see modes/common.py).
+            # Unlike the old behaviour (every counter zeroed, trace
+            # always empty), use the partial outcome so failed trials
+            # stay reviewable: this is what CLAUDE.md's consistency
+            # check and the report's failure analysis both need traces
+            # for.
+            # Always raised as `raise TrialAborted(outcome) from exc`
+            # (see modes/common.py), so __cause__ is never actually None.
+            assert exc.__cause__ is not None
+            cause: BaseException = exc.__cause__
+            partial = exc.outcome
+            if isinstance(cause, UsageMissingError):
+                return (
+                    TrialRecord(
+                        trial_id=spec.trial_id,
+                        model_id=spec.model_id,
+                        mode=spec.mode,
+                        task_id=spec.task_id,
+                        tool_count=spec.tool_count,
+                        rep_index=spec.rep_index,
+                        timestamp=timestamp,
+                        valid=False,
+                        success=False,
+                        failure_type=None,
+                        num_requests=partial.num_requests,
+                        num_tool_calls=partial.num_tool_calls,
+                        num_code_executions=getattr(partial, "num_code_executions", 0),
+                        prompt_tokens=partial.total_usage.prompt_tokens,
+                        completion_tokens=partial.total_usage.completion_tokens,
+                        total_tokens=partial.total_usage.total_tokens,
+                        latency_total_s=sum(partial.per_request_latencies),
+                        throughput_tokens_per_s=0.0,
+                        gpu_seconds=wall,
+                        cost_usd_estimate=gpu_cost_usd(wall, gpu_hourly_usd=gpu_hourly_usd),
+                        final_answer_text=None,
+                        expected=None,
+                        detail=str(cause),
+                    ),
+                    partial.transcript,
+                )
+            # "context_overflow" is distinguished from a generic
+            # provider-side failure (a malformed tool call the parser
+            # rejected, a client-side request timeout, a 5xx from
+            # vLLM, ...). Neither is a genuine MCP tool-execution error
+            # (that case is "tool_error"/"code_error" via had_error +
+            # max_turns below) -- mislabeling them that way would hide a
+            # real source of failures behind a misleading name.
+            failure_type = "context_overflow" if _is_context_overflow(cause) else "provider_error"
             return (
                 TrialRecord(
                     trial_id=spec.trial_id,
@@ -278,9 +344,9 @@ def run_trial(
                     tool_count=spec.tool_count,
                     rep_index=spec.rep_index,
                     timestamp=timestamp,
-                    valid=False,
+                    valid=True,
                     success=False,
-                    failure_type=None,
+                    failure_type=failure_type,
                     num_requests=partial.num_requests,
                     num_tool_calls=partial.num_tool_calls,
                     num_code_executions=getattr(partial, "num_code_executions", 0),
@@ -297,46 +363,9 @@ def run_trial(
                 ),
                 partial.transcript,
             )
-        # "context_overflow" is distinguished from a generic provider-side
-        # failure (a malformed tool call the parser rejected, a client-side
-        # request timeout, a 5xx from vLLM, ...). Neither is a genuine MCP
-        # tool-execution error (that case is "tool_error"/"code_error" via
-        # had_error + max_turns below) -- mislabeling them that way would
-        # hide a real source of failures behind a misleading name.
-        failure_type = "context_overflow" if _is_context_overflow(cause) else "provider_error"
-        return (
-            TrialRecord(
-                trial_id=spec.trial_id,
-                model_id=spec.model_id,
-                mode=spec.mode,
-                task_id=spec.task_id,
-                tool_count=spec.tool_count,
-                rep_index=spec.rep_index,
-                timestamp=timestamp,
-                valid=True,
-                success=False,
-                failure_type=failure_type,
-                num_requests=partial.num_requests,
-                num_tool_calls=partial.num_tool_calls,
-                num_code_executions=getattr(partial, "num_code_executions", 0),
-                prompt_tokens=partial.total_usage.prompt_tokens,
-                completion_tokens=partial.total_usage.completion_tokens,
-                total_tokens=partial.total_usage.total_tokens,
-                latency_total_s=sum(partial.per_request_latencies),
-                throughput_tokens_per_s=0.0,
-                gpu_seconds=wall,
-                cost_usd_estimate=gpu_cost_usd(wall, gpu_hourly_usd=gpu_hourly_usd),
-                final_answer_text=None,
-                expected=None,
-                detail=str(cause),
-            ),
-            partial.transcript,
-        )
-    except Exception as exc:  # noqa: BLE001 -- unexpected (not from provider.chat(),
-        # which is always wrapped as TrialAborted); classified generically,
-        # never silently dropped.
-        pool.shutdown(wait=False)
-        wall = time.monotonic() - start
+        # Unexpected (not from provider.chat(), which is always wrapped
+        # as TrialAborted); classified generically, never silently
+        # dropped.
         failure_type = "context_overflow" if _is_context_overflow(exc) else "provider_error"
         return (
             TrialRecord(
@@ -366,7 +395,7 @@ def run_trial(
             ),
             [],
         )
-    pool.shutdown(wait=False)
+    outcome = payload
 
     latency_total = sum(outcome.per_request_latencies)
     total_tokens = outcome.total_usage.total_tokens

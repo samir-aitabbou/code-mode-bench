@@ -7,6 +7,7 @@ with no network access; only stdout/stderr (truncated) comes back.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 
 from cmbench.modes.common import FINAL_ANSWER_MARKER, REMINDER_TEXT, TrialAborted
@@ -67,11 +68,13 @@ def run_codemode_trial(
     max_turns: int = 15,
     temperature: float = 0.0,
     max_code_exec_seconds: float = 120.0,
+    cancel_event: threading.Event | None = None,
 ) -> TrialOutcome:
     """Run one codemode-mode trial to completion (final answer or
     max_turns). An exception from `provider.chat` is re-raised as
     `TrialAborted` carrying the partial outcome, same as in classic mode
-    (see `cmbench.runner`)."""
+    (see `cmbench.runner`). `cancel_event` works the same way as in
+    classic mode: once set, no new turn is started."""
     tools_module_source = generate_tools_module(mcp_tools)
     system_with_api = (
         f"{system_prompt}\n\n"
@@ -87,6 +90,11 @@ def run_codemode_trial(
     outcome = TrialOutcome(final_answer_text=None)
 
     for _turn in range(max_turns):
+        if cancel_event is not None and cancel_event.is_set():
+            outcome.transcript = messages
+            raise TrialAborted(outcome) from TimeoutError(
+                "trial abandoned: cancel_event set by the caller"
+            )
         try:
             response = provider.chat(
                 messages, tools=[EXECUTE_PYTHON_TOOL], temperature=temperature

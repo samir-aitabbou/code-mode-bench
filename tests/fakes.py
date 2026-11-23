@@ -6,6 +6,7 @@ GPU (fournisseur simulé)").
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
@@ -29,6 +30,9 @@ class StubProvider(Provider):
 
     responses: list[ChatResponse | Exception]
     calls: list[list[ChatMessage]] = field(default_factory=list)
+    # Simulates a slow vLLM response, e.g. to test the trial wall-clock
+    # timeout without a real server.
+    delay_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         self._iter: Iterator[ChatResponse | Exception] = iter(self.responses)
@@ -41,6 +45,8 @@ class StubProvider(Provider):
         temperature: float = 0.0,
     ) -> ChatResponse:
         self.calls.append(list(messages))
+        if self.delay_seconds:
+            time.sleep(self.delay_seconds)
         try:
             item = next(self._iter)
         except StopIteration as exc:
