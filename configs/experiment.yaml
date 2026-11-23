@@ -40,5 +40,7 @@ tool_bloat_variant:
 # Total trials per model: 6*2*10 (main) + 2*2*5 (tool bloat) = 140
 # Total trials, 2 models: 280. PLAN.md §6 states 560 for 4 models; Gemma 4
 # and Qwen3.8-27B were both dropped on 2026-11-22/23 (same underlying
-# transformers>=5.0 / CUDA-12.8 driver wall, see configs/models.yaml and
-# PROGRESS.md) -- documented as a deviation from plan in REPORT.md.
+# transformers>=5.0 / CUDA-12.8 driver wall), and a 3rd candidate
+# (Qwen3-32B-AWQ) was added then dropped again on 2026-11-23 after an
+# empirical VRAM-budget test (see configs/models.yaml and PROGRESS.md)
+# -- documented as a deviation from plan in REPORT.md.
