@@ -126,7 +126,7 @@ models:
     reasoning_parser: qwen3
     enable_auto_tool_choice: true
     max_model_len: 16384
-    gpu_memory_utilization: 0.90
+    gpu_memory_utilization: 0.85
     notes: >
       Added 2026-11-23 as a 3rd model (Samir's approval) -- official
       Qwen-org AWQ 4-bit build of the dense 32.8B Qwen3-32B (standard
@@ -137,11 +137,16 @@ models:
       comfortably within both floors, no trust_remote_code or
       tokenizer override expected. NOT YET VERIFIED empirically:
       on-disk weight size (informally estimated ~18-19 GB, leaving
-      little headroom for KV cache in our ~20.8 GiB usable budget --
-      max_model_len set to 16384, well below the native 32768, as a
-      starting point pending the smoke test), and the tool_call_parser
-      choice (the recipe gives --tool-call-parser hermes
-      --reasoning-parser qwen3; the HF card's own differing example
-      uses --reasoning-parser deepseek_r1 via the now-deprecated
-      --enable-reasoning flag). Both to be confirmed/corrected by
-      `cmbench smoke` before this model is included in the pilot.
+      little headroom for KV cache in our ~20.8 GiB usable budget.
+      First smoke attempt at gpu_memory_utilization=0.90 (21.38 GiB)
+      failed immediately at engine init ("Free memory on device
+      cuda:0 (20.84/23.76 GiB) ... less than desired") -- before any
+      weight download -- so lowered to 0.85, matching the other 2
+      models. max_model_len set to 16384, well below the native
+      32768, as a starting point pending the smoke test. Also not
+      yet verified: the tool_call_parser choice (the recipe gives
+      --tool-call-parser hermes --reasoning-parser qwen3; the HF
+      card's own differing example uses --reasoning-parser
+      deepseek_r1 via the now-deprecated --enable-reasoning flag).
+      Both to be confirmed/corrected by `cmbench smoke` before this
+      model is included in the pilot.
