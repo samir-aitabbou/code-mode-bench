@@ -280,10 +280,40 @@
 3. ✅ **Fait** : tests de fumée propres re-passés sur gpt-oss-20b et Qwen3.5-9B avec le runner
    corrigé — les deux `OK` (classic + codemode, T1), rapides (quelques secondes par essai,
    aucun souci de timeout). VRAM libérée après chaque arrêt.
-4. **⏸ Prochaine étape : lancer le pilote** (1 répétition de toutes les tâches T1-T6, 2
-   modèles, 2 modes = 24 essais) et présenter à Samir les taux de réussite, les tokens, et
-   la durée projetée de la série complète (280 essais) avant de lancer `run_all.sh` dans
-   `tmux` (CLAUDE.md §4 étape 8).
+4. ✅ **Fait : pilote exécuté** (1 répétition de T1-T6, 2 modèles, 2 modes = 24 essais). Voir
+   les résultats et la projection ci-dessous.
+
+## Résultats du pilote (24 essais, 1 rép. × 6 tâches × 2 modes × 2 modèles)
+
+**gpt-oss-20b** — classic 4/6 OK, codemode 6/6 OK :
+- classic : T1 OK, T2 OK, **T3 FAIL (tool_error, 144,7s)**, **T4 FAIL (context_overflow, 1,0s)**,
+  **T5 FAIL (timeout, 600s — plafond atteint)**, T6 OK.
+- codemode : les 6 tâches OK (T3 12,3s, T4 20,0s, T5 6,8s — bien plus rapide que classic quand
+  ça marche).
+
+**qwen3.5-9b** — classic 4/6 OK, codemode 6/6 OK :
+- classic : T1 OK, T2 OK, T3 OK (142,0s), **T4 FAIL (context_overflow, 3,1s)**,
+  **T5 FAIL (tool_error, 425,4s)**, T6 OK.
+- codemode : les 6 tâches OK (T3 38,0s, T4 130,9s, T5 46,0s).
+
+**Lecture** : les deux modèles réussissent presque toujours T1/T2 en classic (aucun signe de
+bug du harness/correcteur, conforme au contrôle de cohérence de CLAUDE.md §4 étape 10). Le
+Code Mode réussit systématiquement les tâches T3/T4/T5 (grosses volumétries : top-3/5 sur
+des milliers de lignes), alors que le mode classic échoue régulièrement sur ces mêmes tâches
+(dépassement de contexte, erreurs d'outils, ou timeout) — exactement l'effet que le
+benchmark est censé mesurer (cohérent avec les hypothèses H1-H3 de PLAN.md). Bon signal que
+le harness produit un résultat différenciant et pas juste du bruit.
+
+**Projection de durée pour la série complète (280 essais, en extrapolant les latences du
+pilote × nombre de répétitions prévu — approximation, surtout pour la variante 60 outils où
+le pilote n'a pas de données directes)** :
+- gpt-oss-20b : ~2,2h (série principale, 120 essais) + ~1,1h (variante 60 outils, 20 essais)
+  ≈ **3,3h**
+- qwen3.5-9b : ~2,3h (série principale) + ~0,9h (variante 60 outils) ≈ **3,2h**
+- **Total estimé : ~6,5h** de calcul GPU (+ quelques minutes de changement de modèle/VRAM).
+  Tient largement en une nuit avec `run_all.sh` dans `tmux`.
+
+**⏸ En attente du feu vert de Samir pour lancer la série complète (280 essais).**
 
 ## Commandes utiles
 
