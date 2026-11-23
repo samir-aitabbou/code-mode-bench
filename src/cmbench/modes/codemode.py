@@ -113,6 +113,17 @@ def run_codemode_trial(
 
         if response.message.tool_calls:
             for tc in response.message.tool_calls:
+                if tc.parse_error:
+                    outcome.had_error = True
+                    messages.append(
+                        ChatMessage(
+                            role="tool",
+                            content=f"ERROR: {tc.parse_error}",
+                            tool_call_id=tc.id,
+                            name=tc.name,
+                        )
+                    )
+                    continue
                 code = str(tc.arguments.get("code", ""))
                 outcome.num_code_executions += 1
                 result = run_sandboxed(

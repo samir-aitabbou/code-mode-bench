@@ -55,6 +55,37 @@ def test_classic_trial_calls_tool_then_finishes() -> None:
     assert roles == ["system", "user", "assistant", "tool", "assistant"]
 
 
+def test_classic_trial_feeds_back_malformed_tool_call_arguments_for_retry() -> None:
+    """Regression test: gpt-oss-20b sometimes emits a tool call whose
+    arguments aren't valid JSON (OpenAICompatProvider.chat() catches this
+    and sets ToolCall.parse_error instead of raising -- see PROGRESS.md).
+    The trial must feed that back as a normal tool-execution error (same
+    retry path as "unknown tool"), not call execute_tool with it and not
+    abort the trial."""
+    provider = StubProvider(
+        responses=[
+            assistant_tool_call(
+                "get_customer",
+                {},
+                parse_error="tool call arguments were not valid JSON (...); raw text: 'bad'",
+            ),
+            assistant_text('FINAL_ANSWER: {"email": "a@example.com"}'),
+        ]
+    )
+
+    def execute_tool(name: str, args: dict[str, Any]) -> Any:
+        raise AssertionError("execute_tool must not be called for a malformed tool call")
+
+    outcome = run_classic_trial(provider, "sys", "task", TOOLS, execute_tool, max_turns=15)
+
+    assert outcome.had_error is True
+    assert outcome.stopped_reason == "final_answer"
+    tool_message = outcome.transcript[3]
+    assert tool_message.role == "tool"
+    assert tool_message.content is not None
+    assert "not valid JSON" in tool_message.content
+
+
 def test_classic_trial_hits_max_turns_without_final_answer() -> None:
     responses = [assistant_tool_call("get_customer", {"customer_id": "C0001"}) for _ in range(3)]
     provider = StubProvider(responses=responses)

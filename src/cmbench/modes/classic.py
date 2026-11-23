@@ -81,12 +81,16 @@ def run_classic_trial(
         if response.message.tool_calls:
             outcome.num_tool_calls += len(response.message.tool_calls)
             for tc in response.message.tool_calls:
-                try:
-                    result = execute_tool(tc.name, tc.arguments)
-                    result_text = str(result)
-                except Exception as exc:  # noqa: BLE001 -- a tool error is a normal trial outcome
-                    result_text = f"ERROR: {exc}"
+                if tc.parse_error:
+                    result_text = f"ERROR: {tc.parse_error}"
                     outcome.had_error = True
+                else:
+                    try:
+                        result = execute_tool(tc.name, tc.arguments)
+                        result_text = str(result)
+                    except Exception as exc:  # noqa: BLE001 -- a tool error is a normal outcome
+                        result_text = f"ERROR: {exc}"
+                        outcome.had_error = True
                 messages.append(
                     ChatMessage(
                         role="tool", content=result_text, tool_call_id=tc.id, name=tc.name

@@ -18,6 +18,38 @@ MCP_TOOLS = [
 ]
 
 
+def test_codemode_trial_feeds_back_malformed_tool_call_arguments_for_retry() -> None:
+    """Regression test, same bug as classic.py's equivalent (PROGRESS.md):
+    a malformed execute_python tool call (ToolCall.parse_error set by
+    OpenAICompatProvider.chat()) must be fed back as a tool-execution
+    error, never passed to run_sandboxed with empty/garbage code."""
+    provider = StubProvider(
+        responses=[
+            assistant_tool_call(
+                "execute_python",
+                {},
+                parse_error="tool call arguments were not valid JSON (...); raw text: 'bad'",
+            ),
+            assistant_text('FINAL_ANSWER: "ok"'),
+        ]
+    )
+
+    def execute_tool(name: str, args: dict[str, Any]) -> Any:
+        raise AssertionError("execute_tool must not be called for a malformed tool call")
+
+    outcome = run_codemode_trial(
+        provider, "system prompt", "task prompt", MCP_TOOLS, execute_tool, max_turns=15
+    )
+
+    assert outcome.had_error is True
+    assert outcome.num_code_executions == 0
+    assert outcome.stopped_reason == "final_answer"
+    tool_message = outcome.transcript[3]
+    assert tool_message.role == "tool"
+    assert tool_message.content is not None
+    assert "not valid JSON" in tool_message.content
+
+
 def test_codemode_trial_executes_code_and_finishes() -> None:
     code = "import tools\nc = tools.get_customer(customer_id='C0001')\nprint(c['email'])"
     provider = StubProvider(

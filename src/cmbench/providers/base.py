@@ -21,6 +21,16 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
+    # Set instead of raising when the model's tool-call arguments were not
+    # valid JSON (observed with gpt-oss-20b's Harmony tool-call format: a
+    # malformed function-call payload that vLLM's own tool parser already
+    # tolerates -- it falls back to passing the raw text through -- but
+    # that raw text is not valid JSON for *us* to decode as `arguments`).
+    # `arguments` is {} in this case. Modes must check this before calling
+    # the tool and feed it back as a normal tool-execution error (the same
+    # retry path as "unknown tool" or a bad-argument TypeError), instead of
+    # letting a bare JSONDecodeError escape and abort the whole trial.
+    parse_error: str | None = None
 
 
 @dataclass

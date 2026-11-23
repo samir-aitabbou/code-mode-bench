@@ -130,11 +130,35 @@ class OpenAICompatProvider(Provider):
                     f"unexpected tool_call type {tc.type!r} from vLLM; only "
                     "function-style tool calls are supported"
                 )
+            try:
+                arguments = json.loads(tc.function.arguments or "{}")
+                parse_error = None
+            except json.JSONDecodeError as exc:
+                # Observed with gpt-oss-20b: vLLM's own "openai" tool-call
+                # parser (vllm/tool_parsers/openai_tool_parser.py) already
+                # tolerates a malformed function-call payload from the
+                # model -- it catches its own JSONDecodeError and falls
+                # back to passing the raw text through as `arguments`,
+                # returning 200 OK -- but that raw text is not valid JSON
+                # for us to decode here. Previously this JSONDecodeError
+                # escaped uncaught, aborting the whole trial as a generic
+                # "provider_error" even though the server-side request
+                # had actually succeeded. Recorded as a parse_error
+                # instead: modes/classic.py and modes/codemode.py feed it
+                # back as a normal tool-execution error (the same retry
+                # path proven for "unknown tool"/bad-argument errors), so
+                # the model gets a chance to retry with valid JSON.
+                arguments = {}
+                parse_error = (
+                    f"tool call arguments were not valid JSON ({exc}); "
+                    f"raw text: {tc.function.arguments[:500]!r}"
+                )
             tool_calls.append(
                 ToolCall(
                     id=tc.id or str(uuid.uuid4()),
                     name=tc.function.name,
-                    arguments=json.loads(tc.function.arguments or "{}"),
+                    arguments=arguments,
+                    parse_error=parse_error,
                 )
             )
         return ChatResponse(

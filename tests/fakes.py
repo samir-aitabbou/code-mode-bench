@@ -77,12 +77,15 @@ def assistant_tool_call(
     call_id: str = "call_1",
     prompt_tokens: int = 10,
     completion_tokens: int = 5,
+    parse_error: str | None = None,
 ) -> ChatResponse:
     return ChatResponse(
         message=ChatMessage(
             role="assistant",
             content=None,
-            tool_calls=[ToolCall(id=call_id, name=name, arguments=arguments)],
+            tool_calls=[
+                ToolCall(id=call_id, name=name, arguments=arguments, parse_error=parse_error)
+            ],
         ),
         usage=usage(prompt_tokens, completion_tokens),
         latency_seconds=0.01,
