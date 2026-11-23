@@ -67,11 +67,18 @@ class OpenAICompatProvider(Provider):
     base_url: str
     model: str
     api_key: str = "EMPTY"
-    # Defense-in-depth against a dead/stalled connection to vLLM: without
-    # this, a single hung request could block forever (the runner's own
-    # 600s trial wall-clock limit bounds abandoning a slow trial, but
-    # can't force an in-flight HTTP call to actually return).
-    request_timeout_s: float = 900.0
+    # Bounds a single chat-completion call. Deliberately well below the
+    # runner's 600s trial wall-clock limit (not above it, as a first
+    # attempt at this had it): when the runner abandons a trial at 600s,
+    # the underlying HTTP request is NOT cancelled server-side (the
+    # OpenAI client has no cancellation signal once the call is sent) --
+    # it keeps running against vLLM and competing for KV cache with the
+    # next trial's requests. Observed in the wild: an abandoned request
+    # ran concurrently with the next trial's, "Running: 2 reqs", GPU KV
+    # cache usage climbing past 86% in under a minute. A lower per-request
+    # timeout closes the stalled connection itself well before that,
+    # bounding (not eliminating -- see PROGRESS.md) the leak window.
+    request_timeout_s: float = 120.0
 
     def __post_init__(self) -> None:
         self._client = OpenAI(
