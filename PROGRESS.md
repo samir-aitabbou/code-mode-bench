@@ -277,9 +277,13 @@
 
 2. **⏸ Présenter à Samir le pilote** (1 répétition de toutes les tâches, 2 modèles, 2 modes —
    voir CLAUDE.md §4 étape 8) avant de lancer la série complète (280 essais).
-3. Avant le pilote : relancer un test de fumée propre sur gpt-oss-20b et Qwen3.5-9B avec le
-   runner corrigé (timeout 600s/120s désormais réellement effectif — voir le bug corrigé
-   plus haut) pour confirmer qu'ils ne sont pas affectés par un problème similaire.
+3. ✅ **Fait** : tests de fumée propres re-passés sur gpt-oss-20b et Qwen3.5-9B avec le runner
+   corrigé — les deux `OK` (classic + codemode, T1), rapides (quelques secondes par essai,
+   aucun souci de timeout). VRAM libérée après chaque arrêt.
+4. **⏸ Prochaine étape : lancer le pilote** (1 répétition de toutes les tâches T1-T6, 2
+   modèles, 2 modes = 24 essais) et présenter à Samir les taux de réussite, les tokens, et
+   la durée projetée de la série complète (280 essais) avant de lancer `run_all.sh` dans
+   `tmux` (CLAUDE.md §4 étape 8).
 
 ## Commandes utiles
 
