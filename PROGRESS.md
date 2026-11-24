@@ -536,6 +536,48 @@ avant écriture (aucune corruption). Note en passant : la VRAM observée à l'ar
 `vllm`/`EngineCore` restant), c'est le `llama-server` du collègue qui avait redémarré entre
 les deux pauses.
 
+## Série complète terminée (2026-11-24, 16h19)
+
+Reprise finale (15h20) : VRAM vérifiée libre, relancée dans `tmux cmbench`. `gpt-oss-20b`
+re-sauté (140/140). `qwen3.5-9b` a terminé ses 41 essais restants sans incident et sans
+intervention — **280/280 essais au total**, `results/DONE` créé (légitimement cette fois :
+`run_status.json` affiche `"done"` pour les deux modèles). VRAM libérée (1 MiB) à l'arrêt.
+Résultats finaux commités sur la VM puis rapatriés en local (`git pull vm master`).
+
+## Contrôles de cohérence (CLAUDE.md §4 étape 10) — tous passés
+
+1. **Plancher T1/T2 classic** : les **deux** modèles réussissent 10/10 sur T1 et T2 en
+   classic (largement au-dessus du plancher « au moins un modèle presque à 100% »).
+2. **Comptage des essais** : chaque modèle a exactement 140/140 essais, répartis exactement
+   comme prévu par `configs/experiment.yaml` (16 combinaisons mode×tâche×nb_outils, 10 réps
+   pour les 12 combinaisons de la série principale, 5 réps pour les 4 combinaisons T3/T5 à
+   60 outils) — aucune combinaison manquante ou en trop.
+3. **Totaux tokens/temps GPU** : sommés directement depuis les 280 lignes JSONL (pas
+   recalculés à la main) : **7 872 185 tokens au total**, **~4,89h de temps GPU cumulé**
+   (gpt-oss-20b ≈2,13h, qwen3.5-9b ≈2,76h) — bien au-dessus de la pire estimation (~6,5h)
+   car calculé en GPU-secondes réel et non en latence d'essai (le temps GPU mesuré par essai
+   est net, sans l'attente réseau/retry).
+4. **Relecture manuelle de 11 traces tirées au hasard** (6 succès, 5 types d'échec
+   différents, les deux modèles, les deux modes) : **aucun bug du correcteur trouvé**. Le
+   correcteur classe correctement : succès (réponse = attendu), `wrong_answer` (JSON
+   syntaxiquement valide mais faux), `context_overflow`/`provider_error`/`timeout` (erreurs
+   serveur/réseau, pas de JSON à comparer), `tool_error` vs `max_turns` (la règle « une erreur
+   d'outil dans les 15 tours → classé tool_error, pas max_turns générique » fonctionne comme
+   prévu dans le code).
+
+**Découverte en relisant les traces (à documenter dans `REPORT.md` §5 Failure analysis) :**
+gpt-oss-20b laisse parfois fuiter un jeton spécial du format Harmony dans le *nom* de l'outil
+appelé (ex. `list_invoices<|channel|>commentary` au lieu de `list_invoices`), sur des tâches
+avec beaucoup de contexte (T3, 12 et 60 outils). Le nom corrompu ne correspond à aucun outil
+MCP connu → `ERROR: Unknown tool: ...` renvoyé au modèle, qui retente parfois exactement le
+même nom corrompu plusieurs fois avant d'abandonner (`FINAL_ANSWER: []`, classé à raison
+`wrong_answer`) ou d'épuiser ses tours (classé à raison `tool_error`, cf. règle ci-dessus).
+Distinct du bug client déjà corrigé plus haut (point 1 du second passage de Samir) : ici
+vLLM renvoie parfois une erreur serveur franche (500, `provider_error`, 4 essais) quand ce
+jeton corrompu casse carrément l'en-tête du message côté serveur, pas seulement les
+arguments JSON. C'est un vrai échec du modèle/parseur sous cette configuration (tâche
+lourde en contexte), pas un bug de notre harness — à présenter comme tel.
+
 ## Commandes utiles
 
 ```bash
