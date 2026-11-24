@@ -1,8 +1,11 @@
 import json
 import sqlite3
+import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
+import cmbench.runner as runner_module
 from cmbench.providers.base import UsageMissingError
 from cmbench.runner import (
     TrialSpec,
@@ -82,6 +85,63 @@ def test_run_trial_classic_success(tmp_path: Path, seeded_db: Path) -> None:
     assert record.trial_id == spec.trial_id
     assert transcript  # non-empty
     assert (tmp_path / f"{spec.trial_id}.db").exists()
+
+
+def test_run_trial_attaches_gpu_snapshot_when_nvidia_smi_available(
+    tmp_path: Path, seeded_db: Path, monkeypatch: Any
+) -> None:
+    conn = sqlite3.connect(seeded_db)
+    expected = conn.execute(
+        "SELECT COUNT(*) FROM tickets WHERE customer_id='C0042' AND status='open'"
+    ).fetchone()[0]
+    provider = StubProvider(
+        responses=[
+            assistant_tool_call("get_customer", {"customer_id": "C0042"}),
+            assistant_text(f"FINAL_ANSWER: {expected}"),
+        ]
+    )
+    spec = TrialSpec("gpt-oss-20b", "classic", "T1", 12, 0)
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> Any:
+        if "--query-compute-apps=pid" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, stdout="1234\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="7, 1000, 2000\n", stderr="")
+
+    monkeypatch.setattr(runner_module.subprocess, "run", fake_run)
+
+    record, _transcript = run_trial(spec, provider, load_tasks(), seeded_db, tmp_path)
+
+    assert record.gpu_util_pct == 7
+    assert record.gpu_mem_used_mib == 1000
+    assert record.gpu_mem_free_mib == 2000
+    assert record.gpu_compute_procs == 1
+
+
+def test_run_trial_gpu_snapshot_is_none_when_nvidia_smi_unavailable(
+    tmp_path: Path, seeded_db: Path, monkeypatch: Any
+) -> None:
+    conn = sqlite3.connect(seeded_db)
+    expected = conn.execute(
+        "SELECT COUNT(*) FROM tickets WHERE customer_id='C0042' AND status='open'"
+    ).fetchone()[0]
+    provider = StubProvider(
+        responses=[
+            assistant_tool_call("get_customer", {"customer_id": "C0042"}),
+            assistant_text(f"FINAL_ANSWER: {expected}"),
+        ]
+    )
+    spec = TrialSpec("gpt-oss-20b", "classic", "T1", 12, 0)
+
+    def fake_run_missing(cmd: list[str], **kwargs: Any) -> Any:
+        raise FileNotFoundError("nvidia-smi not found")
+
+    monkeypatch.setattr(runner_module.subprocess, "run", fake_run_missing)
+
+    record, _transcript = run_trial(spec, provider, load_tasks(), seeded_db, tmp_path)
+
+    assert record.gpu_util_pct is None
+    assert record.gpu_mem_used_mib is None
+    assert record.gpu_compute_procs is None
 
 
 def test_run_trial_codemode_success(tmp_path: Path, seeded_db: Path) -> None:

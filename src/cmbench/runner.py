@@ -11,9 +11,10 @@ import json
 import logging
 import queue
 import random
+import subprocess
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -98,6 +99,17 @@ class TrialRecord:
     final_answer_text: str | None
     expected: Any
     detail: str
+    # A snapshot taken right after the trial finishes, so a shared VM
+    # (another user's own GPU job, seen in the wild 2026-11-23) can be
+    # told apart from this harness's own load when reading results:
+    # `gpu_compute_procs` > 1 means something other than our own vLLM
+    # server was also on the GPU during (or just after) this trial.
+    # None when nvidia-smi isn't available (e.g. the fake-provider CI
+    # tests) -- never fabricated.
+    gpu_util_pct: int | None = None
+    gpu_mem_used_mib: int | None = None
+    gpu_mem_free_mib: int | None = None
+    gpu_compute_procs: int | None = None
 
 
 def build_trial_specs(
@@ -168,6 +180,54 @@ def make_tool_executor(server: Any) -> Any:
         return _unwrap_structured_content(result.structured_content)
 
     return execute_tool
+
+
+def _gpu_snapshot() -> dict[str, int] | None:
+    """Best-effort `nvidia-smi` snapshot (utilization/memory/compute-process
+    count). Returns None on any failure (no GPU, no nvidia-smi, parse
+    error, ...) -- never raises, so this can't break a trial."""
+    try:
+        usage = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=utilization.gpu,memory.used,memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout.strip()
+        util_pct, mem_used, mem_free = (int(x.strip()) for x in usage.split(","))
+        procs = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout
+        num_procs = len([line for line in procs.splitlines() if line.strip()])
+    except Exception:  # noqa: BLE001 -- a snapshot is a nice-to-have, never a trial blocker
+        return None
+    return {
+        "gpu_util_pct": util_pct,
+        "gpu_mem_used_mib": mem_used,
+        "gpu_mem_free_mib": mem_free,
+        "gpu_compute_procs": num_procs,
+    }
+
+
+def _attach_gpu_snapshot(record: TrialRecord) -> TrialRecord:
+    snapshot = _gpu_snapshot()
+    if snapshot is None:
+        return record
+    return replace(
+        record,
+        gpu_util_pct=snapshot["gpu_util_pct"],
+        gpu_mem_used_mib=snapshot["gpu_mem_used_mib"],
+        gpu_mem_free_mib=snapshot["gpu_mem_free_mib"],
+        gpu_compute_procs=snapshot["gpu_compute_procs"],
+    )
 
 
 def _is_context_overflow(exc: BaseException) -> bool:
@@ -258,30 +318,32 @@ def run_trial(
         cancel_event.set()
         wall = time.monotonic() - start
         return (
-            TrialRecord(
-                trial_id=spec.trial_id,
-                model_id=spec.model_id,
-                mode=spec.mode,
-                task_id=spec.task_id,
-                tool_count=spec.tool_count,
-                rep_index=spec.rep_index,
-                timestamp=timestamp,
-                valid=True,
-                success=False,
-                failure_type="timeout",
-                num_requests=0,
-                num_tool_calls=0,
-                num_code_executions=0,
-                prompt_tokens=0,
-                completion_tokens=0,
-                total_tokens=0,
-                latency_total_s=wall,
-                throughput_tokens_per_s=0.0,
-                gpu_seconds=wall,
-                cost_usd_estimate=gpu_cost_usd(wall, gpu_hourly_usd=gpu_hourly_usd),
-                final_answer_text=None,
-                expected=None,
-                detail=f"trial exceeded the {trial_wall_clock_limit_s}s wall-clock limit",
+            _attach_gpu_snapshot(
+                TrialRecord(
+                    trial_id=spec.trial_id,
+                    model_id=spec.model_id,
+                    mode=spec.mode,
+                    task_id=spec.task_id,
+                    tool_count=spec.tool_count,
+                    rep_index=spec.rep_index,
+                    timestamp=timestamp,
+                    valid=True,
+                    success=False,
+                    failure_type="timeout",
+                    num_requests=0,
+                    num_tool_calls=0,
+                    num_code_executions=0,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    total_tokens=0,
+                    latency_total_s=wall,
+                    throughput_tokens_per_s=0.0,
+                    gpu_seconds=wall,
+                    cost_usd_estimate=gpu_cost_usd(wall, gpu_hourly_usd=gpu_hourly_usd),
+                    final_answer_text=None,
+                    expected=None,
+                    detail=f"trial exceeded the {trial_wall_clock_limit_s}s wall-clock limit",
+                )
             ),
             [],
         )
@@ -303,6 +365,45 @@ def run_trial(
             partial = exc.outcome
             if isinstance(cause, UsageMissingError):
                 return (
+                    _attach_gpu_snapshot(
+                        TrialRecord(
+                            trial_id=spec.trial_id,
+                            model_id=spec.model_id,
+                            mode=spec.mode,
+                            task_id=spec.task_id,
+                            tool_count=spec.tool_count,
+                            rep_index=spec.rep_index,
+                            timestamp=timestamp,
+                            valid=False,
+                            success=False,
+                            failure_type=None,
+                            num_requests=partial.num_requests,
+                            num_tool_calls=partial.num_tool_calls,
+                            num_code_executions=getattr(partial, "num_code_executions", 0),
+                            prompt_tokens=partial.total_usage.prompt_tokens,
+                            completion_tokens=partial.total_usage.completion_tokens,
+                            total_tokens=partial.total_usage.total_tokens,
+                            latency_total_s=sum(partial.per_request_latencies),
+                            throughput_tokens_per_s=0.0,
+                            gpu_seconds=wall,
+                            cost_usd_estimate=gpu_cost_usd(wall, gpu_hourly_usd=gpu_hourly_usd),
+                            final_answer_text=None,
+                            expected=None,
+                            detail=str(cause),
+                        )
+                    ),
+                    partial.transcript,
+                )
+            # "context_overflow" is distinguished from a generic
+            # provider-side failure (a malformed tool call the parser
+            # rejected, a client-side request timeout, a 5xx from
+            # vLLM, ...). Neither is a genuine MCP tool-execution error
+            # (that case is "tool_error"/"code_error" via had_error +
+            # max_turns below) -- mislabeling them that way would hide a
+            # real source of failures behind a misleading name.
+            failure_type = "context_overflow" if _is_context_overflow(cause) else "provider_error"
+            return (
+                _attach_gpu_snapshot(
                     TrialRecord(
                         trial_id=spec.trial_id,
                         model_id=spec.model_id,
@@ -311,9 +412,9 @@ def run_trial(
                         tool_count=spec.tool_count,
                         rep_index=spec.rep_index,
                         timestamp=timestamp,
-                        valid=False,
+                        valid=True,
                         success=False,
-                        failure_type=None,
+                        failure_type=failure_type,
                         num_requests=partial.num_requests,
                         num_tool_calls=partial.num_tool_calls,
                         num_code_executions=getattr(partial, "num_code_executions", 0),
@@ -327,18 +428,16 @@ def run_trial(
                         final_answer_text=None,
                         expected=None,
                         detail=str(cause),
-                    ),
-                    partial.transcript,
-                )
-            # "context_overflow" is distinguished from a generic
-            # provider-side failure (a malformed tool call the parser
-            # rejected, a client-side request timeout, a 5xx from
-            # vLLM, ...). Neither is a genuine MCP tool-execution error
-            # (that case is "tool_error"/"code_error" via had_error +
-            # max_turns below) -- mislabeling them that way would hide a
-            # real source of failures behind a misleading name.
-            failure_type = "context_overflow" if _is_context_overflow(cause) else "provider_error"
-            return (
+                    )
+                ),
+                partial.transcript,
+            )
+        # Unexpected (not from provider.chat(), which is always wrapped
+        # as TrialAborted); classified generically, never silently
+        # dropped.
+        failure_type = "context_overflow" if _is_context_overflow(exc) else "provider_error"
+        return (
+            _attach_gpu_snapshot(
                 TrialRecord(
                     trial_id=spec.trial_id,
                     model_id=spec.model_id,
@@ -350,51 +449,20 @@ def run_trial(
                     valid=True,
                     success=False,
                     failure_type=failure_type,
-                    num_requests=partial.num_requests,
-                    num_tool_calls=partial.num_tool_calls,
-                    num_code_executions=getattr(partial, "num_code_executions", 0),
-                    prompt_tokens=partial.total_usage.prompt_tokens,
-                    completion_tokens=partial.total_usage.completion_tokens,
-                    total_tokens=partial.total_usage.total_tokens,
-                    latency_total_s=sum(partial.per_request_latencies),
+                    num_requests=0,
+                    num_tool_calls=0,
+                    num_code_executions=0,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    total_tokens=0,
+                    latency_total_s=wall,
                     throughput_tokens_per_s=0.0,
                     gpu_seconds=wall,
                     cost_usd_estimate=gpu_cost_usd(wall, gpu_hourly_usd=gpu_hourly_usd),
                     final_answer_text=None,
                     expected=None,
-                    detail=str(cause),
-                ),
-                partial.transcript,
-            )
-        # Unexpected (not from provider.chat(), which is always wrapped
-        # as TrialAborted); classified generically, never silently
-        # dropped.
-        failure_type = "context_overflow" if _is_context_overflow(exc) else "provider_error"
-        return (
-            TrialRecord(
-                trial_id=spec.trial_id,
-                model_id=spec.model_id,
-                mode=spec.mode,
-                task_id=spec.task_id,
-                tool_count=spec.tool_count,
-                rep_index=spec.rep_index,
-                timestamp=timestamp,
-                valid=True,
-                success=False,
-                failure_type=failure_type,
-                num_requests=0,
-                num_tool_calls=0,
-                num_code_executions=0,
-                prompt_tokens=0,
-                completion_tokens=0,
-                total_tokens=0,
-                latency_total_s=wall,
-                throughput_tokens_per_s=0.0,
-                gpu_seconds=wall,
-                cost_usd_estimate=gpu_cost_usd(wall, gpu_hourly_usd=gpu_hourly_usd),
-                final_answer_text=None,
-                expected=None,
-                detail=str(exc),
+                    detail=str(exc),
+                )
             ),
             [],
         )
@@ -447,7 +515,7 @@ def run_trial(
         expected=expected,
         detail=detail,
     )
-    return record, outcome.transcript
+    return _attach_gpu_snapshot(record), outcome.transcript
 
 
 @dataclass
