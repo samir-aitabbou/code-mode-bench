@@ -466,6 +466,55 @@ documenté du parseur gpt-oss (indépendant du mode).
 
 **⏸ En attente du feu vert de Samir pour lancer la série complète (280 essais, 2 modèles).**
 
+## Feu vert reçu et série lancée (2026-11-24, 10h05)
+
+Samir a donné le feu vert avec 5 conditions, toutes remplies avant le lancement :
+1. `nvidia-smi` montré avant lancement (VRAM libre confirmée malgré le process du collègue).
+2. Instantané GPU (`gpu_util_pct`, `gpu_mem_used_mib`, `gpu_mem_free_mib`, `gpu_compute_procs`)
+   ajouté à chaque `TrialRecord` (`src/cmbench/runner.py`), testé (2 nouveaux tests dans
+   `tests/test_runner.py`), vérifié en conditions réelles sur le premier essai du lancement.
+3. Plus aucune tentative `sudo` sans lui demander explicitement au préalable — respecté.
+4. Abandon de Gemma 4 et Qwen3.8-27B (et de Qwen3-32B-AWQ, proposé puis abandonné le même
+   jour) consigné dans `DEVIATIONS.md`, avec le texte d'erreur exact de chaque cas.
+5. Lancement confirmé : session `tmux cmbench` active, `run_status.json` qui avance,
+   commandes de suivi données avant qu'il éteigne son PC.
+
+Série lancée dans `tmux cmbench` sur la VM à 10h05. `gpt-oss-20b` a terminé ses 140 essais
+(série principale + variante 60 outils) sans incident. `qwen3.5-9b` était en cours.
+
+## Mise en pause à la demande de Samir (2026-11-24, 14h10) — VM laissée au collègue
+
+Samir a demandé de libérer la VM pour son collègue. Mise en pause propre :
+- `Ctrl-C` envoyé à la session `tmux cmbench` (interrompt `run_all.sh`, donc plus aucun
+  nouvel essai lancé) ; l'essai en cours (`qwen3.5-9b__classic__T5__tools12__rep3`) a été
+  interrompu **avant** d'être écrit dans le JSONL — aucun résultat corrompu ou partiel.
+- vLLM (`qwen3.5-9b`) arrêté, VRAM vérifiée libre : `1 MiB` utilisé, `21766 MiB` libre, `0`
+  process compute actif (`nvidia-smi`).
+- Session `tmux cmbench` terminée (plus de serveur tmux actif sur la VM).
+
+**État exact à la pause :**
+- `gpt-oss-20b` : **140/140 essais** (série principale + variante 60 outils) — complet.
+- `qwen3.5-9b` : **99/140 essais** — incomplet, 41 essais restants.
+
+**Bug trouvé en pausant (à corriger avant la prochaine relance) :** `run_all.sh` ligne 65
+(`uv run cmbench bench --model "$MODEL_ID"`) ne vérifie pas le code de sortie de `cmbench
+bench`. Résultat : quand ce sous-processus est interrompu (Ctrl-C) ou plante avant d'avoir
+traité tous les essais prévus, le script continue quand même vers `stop_vllm.sh` puis écrit
+le statut `"done"` pour ce modèle et, à la fin de la boucle, crée `results/DONE` — alors que
+`qwen3.5-9b` n'a en réalité traité que 99/140 essais. `results/run_status.json` disait donc
+`qwen3.5-9b: "done"` et `results/DONE` existait, ce qui est **faux** : j'ai supprimé
+`results/DONE` sur la VM et il ne faut pas se fier à ce fichier pour l'instant. À corriger :
+faire échouer `run_all.sh` (ou au moins ne pas écrire `"done"`/créer `DONE`) si `cmbench
+bench` ne se termine pas avec le code 0.
+
+**Pour reprendre plus tard :** relancer `bash scripts/run_all.sh` dans un nouveau `tmux new
+-s cmbench` reprendra correctement — les 99 essais déjà dans `results/raw/qwen3.5-9b.jsonl`
+seront sautés (`skipping already-completed trial ...`), `gpt-oss-20b` sera aussi re-smoke-
+testé puis entièrement sauté (140/140 déjà fait), et seuls les 41 essais restants de
+`qwen3.5-9b` tourneront. Avant de relancer : corriger le bug `run_all.sh` ci-dessus (sinon
+sans conséquence sur les données, juste sur la fiabilité du statut/`DONE`), et vérifier que
+le collègue a bien libéré la VM (`nvidia-smi`, `ps aux | grep -i andriax`).
+
 ## Commandes utiles
 
 ```bash

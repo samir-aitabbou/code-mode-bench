@@ -62,7 +62,19 @@ for MODEL_ID in $MODELS; do
 
   log "running full series for $MODEL_ID"
   write_status "$MODEL_ID" "running"
-  uv run cmbench bench --model "$MODEL_ID" 2>&1 | tee -a "$LOG_FILE"
+  if ! uv run cmbench bench --model "$MODEL_ID" 2>&1 | tee -a "$LOG_FILE"; then
+    # Observed in the wild: an interrupted (Ctrl-C) or crashed `cmbench
+    # bench` left this model's series incomplete, but execution fell
+    # through to "done" below and then to the final `touch DONE` -- both
+    # wrongly claiming the series was complete. Stop and leave an
+    # unambiguous status instead; re-running this script resumes the
+    # model's remaining trials (completed ones are skipped) once it's
+    # restarted deliberately.
+    log "cmbench bench for $MODEL_ID did not exit cleanly -- halting run_all.sh (not marking done)"
+    write_status "$MODEL_ID" "bench_incomplete"
+    bash scripts/stop_vllm.sh 2>&1 | tee -a "$LOG_FILE" || true
+    exit 1
+  fi
 
   log "stopping vLLM for $MODEL_ID"
   write_status "$MODEL_ID" "stopping"
