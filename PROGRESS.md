@@ -515,6 +515,27 @@ testé puis entièrement sauté (140/140 déjà fait), et seuls les 41 essais re
 sans conséquence sur les données, juste sur la fiabilité du statut/`DONE`), et vérifier que
 le collègue a bien libéré la VM (`nvidia-smi`, `ps aux | grep -i andriax`).
 
+## Reprise puis seconde pause (2026-11-24, 15h02-15h06)
+
+VRAM vérifiée libre (`1 MiB` utilisé) avant de relancer : `tmux new -s cmbench 'bash
+scripts/run_all.sh'`. Comme prévu, `gpt-oss-20b` a été re-smoke-testé puis entièrement sauté
+(140/140 déjà fait, statut resté `"done"`), et `qwen3.5-9b` a repris exactement sur l'essai
+interrompu à la pause précédente (`qwen3.5-9b__classic__T5__tools12__rep3`).
+
+Samir a redemandé une pause ~4 minutes plus tard. Même procédure (`Ctrl-C` sur `tmux
+cmbench`, VRAM vérifiée libre côté nous). **Cette fois le correctif du bug `run_all.sh`
+(ajouté à la pause précédente) a fonctionné comme prévu** : le log montre explicitement
+`cmbench bench for qwen3.5-9b did not exit cleanly -- halting run_all.sh (not marking
+done)`, statut écrit `bench_incomplete` (pas `"done"`), et **aucun** faux `results/DONE`
+créé cette fois — plus besoin de corriger après coup. `run_status.json` remis à
+`paused_by_user_99_of_140` par cohérence avec la pause précédente.
+
+État inchangé : `qwen3.5-9b` toujours à **99/140**, l'essai `rep3 T5` de nouveau interrompu
+avant écriture (aucune corruption). Note en passant : la VRAM observée à l'arrêt était à
+`426 MiB` (pas `1 MiB`) — vérifié que ce n'est pas un reste de notre côté (aucun process
+`vllm`/`EngineCore` restant), c'est le `llama-server` du collègue qui avait redémarré entre
+les deux pauses.
+
 ## Commandes utiles
 
 ```bash
