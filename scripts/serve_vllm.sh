@@ -12,7 +12,11 @@ VENV_VLLM="${CMBENCH_VLLM_VENV:-$HOME/code-mode-bench/.venv-vllm}"
 LOG_DIR="$PROJECT_DIR/results"
 PID_FILE="$LOG_DIR/vllm.pid"
 LOG_FILE="$LOG_DIR/vllm_${MODEL_ID}.log"
-PORT="${CMBENCH_VLLM_PORT:-8000}"
+# Default changed from 8000 to 8010: on the shared VM, port 8000 can be
+# held by another user's own application (observed 2026-11-23), unrelated
+# to our VRAM usage. 8010 is ours alone; override via CMBENCH_VLLM_PORT
+# if it ever collides with something else.
+PORT="${CMBENCH_VLLM_PORT:-8010}"
 
 mkdir -p "$LOG_DIR"
 

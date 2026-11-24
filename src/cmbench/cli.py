@@ -82,7 +82,7 @@ def run(
     task: str = typer.Option(..., help="task id, e.g. T3"),
     reps: int = typer.Option(1, help="number of repetitions"),
     tool_count: int = typer.Option(12, help="12 (normal) or 60 (noise-tool variant)"),
-    base_url: str = typer.Option("http://localhost:8000/v1", help="vLLM OpenAI-compatible URL"),
+    base_url: str = typer.Option("http://localhost:8010/v1", help="vLLM OpenAI-compatible URL"),
     models_config: Path = typer.Option(DEFAULT_MODELS_CONFIG),
     experiment_config: Path = typer.Option(DEFAULT_EXPERIMENT_CONFIG),
     template_db: Path = typer.Option(DEFAULT_TEMPLATE_DB),
@@ -123,7 +123,7 @@ def run(
 @app.command()
 def smoke(
     model: str = typer.Option(..., help="model id from configs/models.yaml"),
-    base_url: str = typer.Option("http://localhost:8000/v1"),
+    base_url: str = typer.Option("http://localhost:8010/v1"),
     models_config: Path = typer.Option(DEFAULT_MODELS_CONFIG),
     experiment_config: Path = typer.Option(DEFAULT_EXPERIMENT_CONFIG),
     template_db: Path = typer.Option(DEFAULT_TEMPLATE_DB),
@@ -165,7 +165,7 @@ def smoke(
 @app.command()
 def bench(
     model: str = typer.Option(..., help="model id from configs/models.yaml"),
-    base_url: str = typer.Option("http://localhost:8000/v1"),
+    base_url: str = typer.Option("http://localhost:8010/v1"),
     models_config: Path = typer.Option(DEFAULT_MODELS_CONFIG),
     experiment_config: Path = typer.Option(DEFAULT_EXPERIMENT_CONFIG),
     template_db: Path = typer.Option(DEFAULT_TEMPLATE_DB),
@@ -186,7 +186,7 @@ def bench(
 @app.command(name="serve-cmd")
 def serve_cmd(
     model: str = typer.Option(..., help="model id from configs/models.yaml"),
-    port: int = typer.Option(8000),
+    port: int = typer.Option(8010),
     models_config: Path = typer.Option(DEFAULT_MODELS_CONFIG),
 ) -> None:
     """Print the `vllm serve ...` command for one model, built from
