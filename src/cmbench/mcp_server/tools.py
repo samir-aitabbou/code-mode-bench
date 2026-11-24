@@ -183,6 +183,46 @@ class CrmTools:
         ).fetchall()
         return _rows_to_dicts(rows)
 
+    def list_invoices_page(
+        self,
+        customer_id: str | None = None,
+        status: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+        max_limit: int = 200,
+    ) -> dict[str, Any]:
+        """Like `list_invoices`, but for a well-designed paginated tool: the
+        server clamps `limit` to `max_limit` and reports `total_count` /
+        `has_more` so a caller can tell it needs another page, instead of
+        silently truncating (ANALYSE-CLAUDE.md point A)."""
+        effective_limit = min(limit, max_limit)
+        clauses = []
+        params: list[Any] = []
+        if customer_id is not None:
+            clauses.append("customer_id = ?")
+            params.append(customer_id)
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        total = self.conn.execute(
+            f"SELECT COUNT(*) AS n FROM invoices {where}",  # noqa: S608
+            params,
+        ).fetchone()["n"]
+        rows = self.conn.execute(
+            f"SELECT * FROM invoices {where} ORDER BY id LIMIT ? OFFSET ?",  # noqa: S608
+            [*params, effective_limit, offset],
+        ).fetchall()
+        items = _rows_to_dicts(rows)
+        return {
+            "items": items,
+            "returned": len(items),
+            "offset": offset,
+            "limit": effective_limit,
+            "total_count": int(total),
+            "has_more": offset + len(items) < int(total),
+        }
+
     def get_invoice(self, invoice_id: str) -> dict[str, Any]:
         """Fetch one invoice by id."""
         row = self.conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()

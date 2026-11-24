@@ -249,7 +249,10 @@ def grade_task(
     """Grade one trial. `template_db` is the pristine reference database
     (used to compute the expected answer); `working_db` is the trial's
     working copy after it ran (only inspected for T4's write check)."""
-    if task_id == "T4":
+    if task_id in ("T4", "T4p"):
+        # T4p is the same task, served by a paginated list_invoices tool
+        # (see mcp_server.server.build_server's paginated_invoices option)
+        # -- grading is identical, only the tool behaviour differs.
         return grade_t4(template_db, working_db, final_answer_text)
     grader = _READ_ONLY_GRADERS.get(task_id)
     if grader is None:

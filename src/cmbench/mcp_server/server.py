@@ -24,8 +24,21 @@ from cmbench.mcp_server.tools import CrmTools
 logger = logging.getLogger(__name__)
 
 
-def build_server(db_path: Path, *, with_noise_tools: bool = False) -> MCPServer:
+def build_server(
+    db_path: Path,
+    *,
+    with_noise_tools: bool = False,
+    paginated_invoices: bool = False,
+    invoices_page_limit: int = 200,
+) -> MCPServer:
     """Build the MCP server bound to the SQLite file at `db_path`.
+
+    `paginated_invoices=True` swaps `list_invoices` for a variant that
+    caps `limit` at `invoices_page_limit` and reports `total_count` /
+    `has_more`, instead of the default tool's unbounded `limit=1000`
+    (used only for the T4p complementary probe, see
+    ANALYSE-CLAUDE.md point A; every other task keeps the original
+    tool, unaffected by this flag).
 
     Call `.run()` on the result to serve it over stdio, or drive it
     directly (e.g. via an in-process MCP client session) in tests.
@@ -90,16 +103,47 @@ def build_server(db_path: Path, *, with_noise_tools: bool = False) -> MCPServer:
         """Fetch one order by id, e.g. 'O1337'."""
         return crm.get_order(order_id)
 
-    @server.tool()
-    def list_invoices(
-        customer_id: str | None = None,
-        status: str | None = None,
-        limit: int = 1000,
-        offset: int = 0,
-    ) -> list[dict[str, Any]]:
-        """List invoices, optionally filtered by customer id and/or exact
-        status ('paid', 'unpaid' or 'overdue')."""
-        return crm.list_invoices(customer_id=customer_id, status=status, limit=limit, offset=offset)
+    if paginated_invoices:
+
+        @server.tool(
+            description=(
+                "List invoices (one page at a time), optionally filtered by "
+                "customer id and/or exact status ('paid', 'unpaid' or "
+                f"'overdue'). `limit` is capped server-side at {invoices_page_limit}. "
+                'Returns {"items": [...], "returned": n, "offset": o, "limit": l, '
+                '"total_count": t, "has_more": bool} -- call again with '
+                "offset += returned while has_more is true to gather every "
+                "matching invoice."
+            )
+        )
+        def list_invoices(
+            customer_id: str | None = None,
+            status: str | None = None,
+            limit: int = invoices_page_limit,
+            offset: int = 0,
+        ) -> dict[str, Any]:
+            return crm.list_invoices_page(
+                customer_id=customer_id,
+                status=status,
+                limit=limit,
+                offset=offset,
+                max_limit=invoices_page_limit,
+            )
+
+    else:
+
+        @server.tool(name="list_invoices")
+        def list_invoices_unbounded(
+            customer_id: str | None = None,
+            status: str | None = None,
+            limit: int = 1000,
+            offset: int = 0,
+        ) -> list[dict[str, Any]]:
+            """List invoices, optionally filtered by customer id and/or exact
+            status ('paid', 'unpaid' or 'overdue')."""
+            return crm.list_invoices(
+                customer_id=customer_id, status=status, limit=limit, offset=offset
+            )
 
     @server.tool()
     def get_invoice(invoice_id: str) -> dict[str, Any]:

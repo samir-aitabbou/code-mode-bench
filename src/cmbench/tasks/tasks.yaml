@@ -40,6 +40,18 @@ tasks:
       customer ids you processed, e.g.
       FINAL_ANSWER: {"customers_updated": ["C0010", "C0023"]}
 
+  - id: T4p
+    title: Loop with writes, paginated invoice tool
+    statement: >-
+      For every customer who has more than 2 overdue invoices: add the note
+      'Q4 follow-up' to their customer record (overwriting any existing
+      note), and send them a reminder email about their overdue invoices
+      (any subject and body mentioning the overdue payment is fine).
+    answer_format: >-
+      a JSON object with one field, "customers_updated", listing the
+      customer ids you processed, e.g.
+      FINAL_ANSWER: {"customers_updated": ["C0010", "C0023"]}
+
   - id: T5
     title: Large-volume filter
     statement: >-

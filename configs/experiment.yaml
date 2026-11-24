@@ -43,8 +43,26 @@ tool_bloat_variant:
   repetitions: 5
   tool_count_variant: 60 # 12 real tools + 48 noise tools, see src/cmbench/mcp_server/extra_tools.py
 
-# Total trials per model: 6*2*10 (main) + 2*2*5 (tool bloat) = 140
-# Total trials, 2 models: 280. PLAN.md §6 states 560 for 4 models; Gemma 4
+paginated_variant:
+  # Complementary probe added 2026-11-24 after independent analysis
+  # (ANALYSE-CLAUDE.md point A): T4 classic fails 0/20 by construction,
+  # since the only available list_invoices tool returns every overdue
+  # invoice across all customers in one unbounded call, blowing the
+  # context window before the model gets a chance to reason. T4p is the
+  # exact same task, served by a `list_invoices` that caps `limit`
+  # server-side and reports total_count/has_more, so a classic-mode
+  # model that pages through offsets can in principle still succeed.
+  # Classic-mode only: codemode already succeeds on T4 with the
+  # original (unpaginated) tool, so there is nothing to probe there.
+  tasks: [T4p]
+  modes: [classic]
+  repetitions: 10
+  invoices_page_limit: 200
+
+# Total trials per model: 6*2*10 (main) + 2*2*5 (tool bloat) + 1*1*10
+# (paginated) = 150. Total trials, 2 models: 300. PLAN.md §6 states 560
+# for 4 models (and doesn't mention the paginated_variant probe, added
+# after the fact); Gemma 4
 # and Qwen3.8-27B were both dropped on 2026-11-22/23 (same underlying
 # transformers>=5.0 / CUDA-12.8 driver wall), and a 3rd candidate
 # (Qwen3-32B-AWQ) was added then dropped again on 2026-11-23 after an

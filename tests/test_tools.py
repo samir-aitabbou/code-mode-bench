@@ -53,6 +53,25 @@ def test_list_invoices_filters_by_status(seeded_db: Path) -> None:
     assert all(r["status"] == "overdue" for r in rows)
 
 
+def test_list_invoices_page_caps_limit_and_reports_pagination(seeded_db: Path) -> None:
+    crm = _crm(seeded_db)
+    unpaginated = crm.list_invoices(status="overdue", limit=10000)
+    assert len(unpaginated) > 200  # otherwise this test can't exercise paging
+
+    page = crm.list_invoices_page(status="overdue", limit=10000, max_limit=200)
+    assert page["returned"] == 200  # clamped, even though limit=10000 was requested
+    assert page["limit"] == 200
+    assert page["offset"] == 0
+    assert page["total_count"] == len(unpaginated)
+    assert page["has_more"] is True
+    assert len(page["items"]) == 200
+
+    last_offset = page["total_count"] - (page["total_count"] % 200 or 200)
+    last_page = crm.list_invoices_page(status="overdue", offset=last_offset, max_limit=200)
+    assert last_page["has_more"] is False
+    assert last_page["offset"] + last_page["returned"] == page["total_count"]
+
+
 def test_search_tickets_newest_first_for_customer(seeded_db: Path) -> None:
     crm = _crm(seeded_db)
     rows = crm.search_tickets(customer_id="C0107", limit=3)

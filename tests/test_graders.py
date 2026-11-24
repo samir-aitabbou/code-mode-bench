@@ -123,6 +123,23 @@ def test_t4_incorrect_when_one_customer_missed(tmp_path: Path, seeded_db: Path) 
     assert qualifying[0] in result.detail
 
 
+def test_t4p_grades_identically_to_t4(tmp_path: Path, seeded_db: Path) -> None:
+    working = tmp_path / "working.db"
+    shutil.copyfile(seeded_db, working)
+
+    conn = sqlite3.connect(working)
+    crm = CrmTools(conn)
+    qualifying = t4_qualifying_customers(_row_conn(seeded_db))
+    for cust_id in qualifying:
+        crm.update_customer_note(cust_id, "Q4 follow-up")
+        crm.send_email(cust_id, "Overdue invoices", "Please settle your overdue balance.")
+
+    result = grade_task(
+        "T4p", seeded_db, working, json.dumps({"customers_updated": qualifying})
+    )
+    assert result.correct
+
+
 def test_t5_correct_and_wrong(seeded_db: Path) -> None:
     conn = sqlite3.connect(seeded_db)
     rows = conn.execute(

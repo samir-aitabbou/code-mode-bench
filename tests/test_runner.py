@@ -47,6 +47,22 @@ def test_build_trial_specs_order_differs_per_model() -> None:
     assert ids_a != ids_b  # different shuffle order
 
 
+def test_build_trial_specs_paginated_variant_is_additive() -> None:
+    specs = build_trial_specs(
+        "gpt-oss-20b",
+        **BASE_KWARGS,
+        paginated_tasks=["T4p"],
+        paginated_modes=["classic"],
+        paginated_repetitions=10,
+    )
+    assert len(specs) == 150  # 140 (BASE_KWARGS) + 1*1*10
+    paginated = [s for s in specs if s.task_id == "T4p"]
+    assert len(paginated) == 10
+    assert {s.mode for s in paginated} == {"classic"}
+    assert {s.tool_count for s in paginated} == {12}
+    assert len({s.trial_id for s in specs}) == 150  # all ids still unique
+
+
 def test_load_completed_trial_ids(tmp_path: Path) -> None:
     jsonl = tmp_path / "model.jsonl"
     jsonl.write_text(

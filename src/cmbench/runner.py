@@ -121,10 +121,15 @@ def build_trial_specs(
     tool_bloat_tasks: list[str],
     tool_bloat_repetitions: int,
     seed: int,
+    paginated_tasks: list[str] | None = None,
+    paginated_modes: list[str] | None = None,
+    paginated_repetitions: int = 0,
 ) -> list[TrialSpec]:
-    """Build every planned trial for one model: the main 12-tool series
-    plus the 60-tool variant, then shuffle with a seed derived from the
-    model id so the order differs per model but is reproducible."""
+    """Build every planned trial for one model: the main 12-tool series,
+    the 60-tool variant, and (if given) the paginated-invoices
+    complementary probe (see ANALYSE-CLAUDE.md point A), then shuffle
+    with a seed derived from the model id so the order differs per
+    model but is reproducible."""
     specs: list[TrialSpec] = []
     for task_id in tasks:
         for mode in modes:
@@ -134,6 +139,10 @@ def build_trial_specs(
         for mode in modes:
             for rep in range(tool_bloat_repetitions):
                 specs.append(TrialSpec(model_id, mode, task_id, 60, rep))
+    for task_id in paginated_tasks or []:
+        for mode in paginated_modes or []:
+            for rep in range(paginated_repetitions):
+                specs.append(TrialSpec(model_id, mode, task_id, 12, rep))
 
     rng = random.Random(f"{seed}-{model_id}")
     rng.shuffle(specs)
@@ -246,12 +255,19 @@ def run_trial(
     max_code_exec_seconds: float = 120.0,
     gpu_hourly_usd: float = 0.50,
     trial_wall_clock_limit_s: float = TRIAL_WALL_CLOCK_LIMIT_S,
+    paginate_invoices: bool = False,
+    invoices_page_limit: int = 200,
 ) -> tuple[TrialRecord, list[ChatMessage]]:
     """Run one trial end to end and return (record, transcript)."""
     working_db = working_db_dir / f"{spec.trial_id}.db"
     reset_database(template_db_path, working_db)
 
-    server = build_server(working_db, with_noise_tools=spec.tool_count == 60)
+    server = build_server(
+        working_db,
+        with_noise_tools=spec.tool_count == 60,
+        paginated_invoices=paginate_invoices,
+        invoices_page_limit=invoices_page_limit,
+    )
     mcp_tools = asyncio.run(server.list_tools())
     tool_specs = mcp_tools_to_specs(mcp_tools)
     execute_tool = make_tool_executor(server)
@@ -559,6 +575,9 @@ def run_all_trials_for_model(
     seed = experiment_config["seed"]
     main = experiment_config["main_series"]
     bloat = experiment_config["tool_bloat_variant"]
+    paginated = experiment_config.get("paginated_variant", {})
+    paginated_tasks = paginated.get("tasks", [])
+    invoices_page_limit = paginated.get("invoices_page_limit", 200)
     specs = build_trial_specs(
         model_id,
         tasks=main["tasks"],
@@ -567,6 +586,9 @@ def run_all_trials_for_model(
         tool_bloat_tasks=bloat["tasks"],
         tool_bloat_repetitions=bloat["repetitions"],
         seed=seed,
+        paginated_tasks=paginated_tasks,
+        paginated_modes=paginated.get("modes", []),
+        paginated_repetitions=paginated.get("repetitions", 0),
     )
     done = load_completed_trial_ids(writer.jsonl_path(model_id))
     gpu_hourly_usd = experiment_config.get("gpu_hourly_usd", 0.50)
@@ -591,5 +613,7 @@ def run_all_trials_for_model(
             max_code_exec_seconds=max_code_exec_seconds,
             gpu_hourly_usd=gpu_hourly_usd,
             trial_wall_clock_limit_s=trial_wall_clock_limit_s,
+            paginate_invoices=spec.task_id in paginated_tasks,
+            invoices_page_limit=invoices_page_limit,
         )
         writer.append(record, transcript)

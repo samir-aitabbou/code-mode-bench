@@ -60,6 +60,34 @@ def test_call_tool_list_orders_limit(seeded_db: Path) -> None:
     assert len(rows) == 4
 
 
+def test_call_tool_list_invoices_paginated_caps_limit(seeded_db: Path) -> None:
+    server = build_server(seeded_db, paginated_invoices=True, invoices_page_limit=50)
+
+    async def run() -> dict[str, object]:
+        result = await server.call_tool(
+            "list_invoices", {"status": "overdue", "limit": 10000}
+        )
+        return result.structured_content  # type: ignore[return-value]
+
+    page = asyncio.run(run())
+    assert page["returned"] == 50
+    assert page["limit"] == 50
+    assert page["has_more"] is True
+    assert isinstance(page["total_count"], int)
+    assert page["total_count"] > 50
+
+
+def test_server_without_pagination_keeps_list_invoices_unbounded(seeded_db: Path) -> None:
+    server = build_server(seeded_db, paginated_invoices=False)
+
+    async def run() -> list[object]:
+        result = await server.call_tool("list_invoices", {"status": "overdue", "limit": 10000})
+        return result.structured_content["result"]  # type: ignore[index]
+
+    rows = asyncio.run(run())
+    assert len(rows) > 50  # unaffected by the paginated variant's cap
+
+
 def test_call_tool_unknown_id_raises(seeded_db: Path) -> None:
     server = build_server(seeded_db)
 
