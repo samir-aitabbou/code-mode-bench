@@ -578,6 +578,41 @@ jeton corrompu casse carrément l'en-tête du message côté serveur, pas seulem
 arguments JSON. C'est un vrai échec du modèle/parseur sous cette configuration (tâche
 lourde en contexte), pas un bug de notre harness — à présenter comme tel.
 
+## Rapport généré (2026-11-24, après la fin de la série)
+
+Construit le pipeline de rapport complet (CLAUDE.md §2/§11), manquant jusqu'ici :
+- `src/cmbench/report/aggregate.py` : JSONL → CSV (`results/summary/`) : `by_cell` (table
+  principale), `codemode_effect`, `tool_bloat_effect`, `failure_breakdown`,
+  `context_overflow_by_model`. 7 tests ajoutés (gère aussi le cas limite d'un groupe vide,
+  trouvé par un test qui a cassé avant la correction — `tool_bloat_effect`/`codemode_effect`
+  plantaient sur un `DataFrame` sans colonnes quand aucune tâche T3/T5 n'était présente).
+- `src/cmbench/report/plots.py` : les 6 graphiques requis (CLAUDE.md §6), style du blog
+  (CLAUDE.md §7) : 1600px, fond blanc, DejaVu Sans (Inter non installée sur cette machine,
+  repli explicitement autorisé), couleurs classic/codemode/succès/échec/modèles conformes.
+- `src/cmbench/report/render.py` : génère `REPORT.md` (anglais) entièrement à partir des CSV
+  — aucun chiffre recopié à la main. Inclut `DEVIATIONS.md` directement comme source de la
+  section « Deviations from plan » (fusion propre des niveaux de titres).
+- Nouvelle commande `cmbench report` (enchaîne aggregate → plots → render).
+- `docs/METHODOLOGY.md`, `docs/REPRODUCE.md` (anglais), `ARTICLE-NOTES.md` (français, avec
+  chiffres sourcés + 3 anecdotes de traces + limites), `README.md` finalisé (CLAUDE.md §8).
+- Suite complète : **98 tests passent**, ruff et mypy propres (`pandas-stubs` ajouté en dev
+  dependency pour que mypy type correctement les DataFrames).
+
+**Résultats clés du rapport final** (sourcés dans `results/summary/*.csv`) :
+- 280 essais, ~4,9h de temps GPU cumulé, ~7,87M tokens, ~2,44 $ de coût GPU estimé.
+- H7 confirmée nettement : les 20 échecs `context_overflow` sont tous en classic (0 en
+  codemode).
+- T4 : 0% de réussite classique pour les **deux** modèles, 80-100% en codemode — l'exemple le
+  plus net et symétrique du jeu de données.
+- H5 confirmée mais nuancée : gpt-oss-20b est « sauvé » par le Code Mode sur T3-T5 (0%→80-100%
+  de réussite), qwen3.5-9b réussissait déjà en classique sur ces tâches et gagne surtout en
+  tokens, pas en réussite.
+- H6 confirmée : 12→60 outils fait grimper les tokens d'entrée classic de +55% à +114% sur
+  T3/T5.
+- Découverte additionnelle documentée dans `REPORT.md` §5 (Failure analysis) : fuite d'un
+  jeton de format Harmony dans le nom d'outil appelé par gpt-oss-20b (voir section précédente
+  de ce fichier), avec 2 traces concrètes citées.
+
 ## Commandes utiles
 
 ```bash

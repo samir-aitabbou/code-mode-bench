@@ -9,11 +9,13 @@ import logging
 from pathlib import Path
 from typing import Any, cast
 
+import pandas as pd
 import typer
 import yaml
 
 from cmbench.data.seed import generate_database
 from cmbench.providers.openai_compat import OpenAICompatProvider
+from cmbench.report import aggregate, plots, render
 from cmbench.runner import (
     ResultsWriter,
     TrialSpec,
@@ -253,6 +255,35 @@ def status(
     writer = ResultsWriter(results_dir / "raw")
     done = load_completed_trial_ids(writer.jsonl_path(model))
     typer.echo(f"{model}: {len(done)} trials completed")
+
+
+@app.command()
+def report(
+    results_dir: Path = typer.Option(DEFAULT_RESULTS_DIR),
+    models_config: Path = typer.Option(DEFAULT_MODELS_CONFIG),
+    report_out: Path = typer.Option(Path("REPORT.md")),
+) -> None:
+    """Regenerate every summary CSV, figure, and REPORT.md from
+    `results/raw/*.jsonl`. Safe to re-run any time: everything here is
+    derived, never hand-edited."""
+    _setup_logging()
+    raw_dir = results_dir / "raw"
+    summary_dir = results_dir / "summary"
+    figures_dir = results_dir / "figures"
+
+    aggregate.write_all(raw_dir, summary_dir)
+    cells = pd.read_csv(summary_dir / "by_cell.csv")
+    tool_bloat = pd.read_csv(summary_dir / "tool_bloat_effect.csv")
+    failures = pd.read_csv(summary_dir / "failure_breakdown.csv")
+    plots.write_all(cells, tool_bloat, failures, figures_dir)
+    render.render_report(
+        summary_dir=summary_dir,
+        models_config=models_config,
+        tasks_config=Path("src/cmbench/tasks/tasks.yaml"),
+        deviations_path=Path("DEVIATIONS.md"),
+        out_path=report_out,
+    )
+    typer.echo(f"wrote {report_out}, {summary_dir}/*.csv, {figures_dir}/*.png")
 
 
 if __name__ == "__main__":

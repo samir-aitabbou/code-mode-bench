@@ -1,0 +1,9 @@
+model_id,mode,task_id,median_prompt_tokens_12tools,median_prompt_tokens_60tools,prompt_tokens_pct_change,success_rate_12tools,success_rate_60tools
+gpt-oss-20b,classic,T3,42203.0,65296.0,54.718858848897,0.0,0.0
+gpt-oss-20b,classic,T5,44798.5,95832.0,113.91787671462214,0.0,0.2
+gpt-oss-20b,codemode,T3,14003.5,27645.0,97.4149319812904,1.0,1.0
+gpt-oss-20b,codemode,T5,23982.5,22554.0,-5.956426561034087,1.0,1.0
+qwen3.5-9b,classic,T3,40738.0,68695.0,68.62634395404781,1.0,1.0
+qwen3.5-9b,classic,T5,77509.0,157821.0,103.61635422983137,1.0,1.0
+qwen3.5-9b,codemode,T3,19828.0,38899.0,96.18216663304418,1.0,1.0
+qwen3.5-9b,codemode,T5,27443.0,50782.0,85.04536676019386,1.0,1.0
