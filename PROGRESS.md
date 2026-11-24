@@ -613,9 +613,51 @@ Construit le pipeline de rapport complet (CLAUDE.md §2/§11), manquant jusqu'ic
   jeton de format Harmony dans le nom d'outil appelé par gpt-oss-20b (voir section précédente
   de ce fichier), avec 2 traces concrètes citées.
 
+## Variante T4p (sonde paginée) lancée (2026-11-24, 17h19-17h20)
+
+Suite à l'analyse indépendante dans `ANALYSE-CLAUDE.md` (point A) : le 0% classique sur T4 vient
+de la conception de l'outil (`list_invoices` sans plafond renvoie ~900 lignes en un seul appel,
+au-delà de la fenêtre de 32 768 tokens), pas forcément d'une limite de raisonnement du modèle.
+
+**Ajouté** :
+- Nouvelle tâche `T4p` (`src/cmbench/tasks/tasks.yaml`), énoncé identique à T4, notée par le même
+  correcteur (`graders.grade_task` traite "T4" et "T4p" de façon identique).
+- `CrmTools.list_invoices_page` (`mcp_server/tools.py`) : variante paginée de `list_invoices` —
+  plafonne `limit` côté serveur (200 par défaut) et renvoie `total_count`/`has_more`, pour qu'un
+  modèle qui boucle sur `offset` puisse récupérer toutes les factures en retard sans jamais
+  dépasser le plafond par appel.
+- `build_server(..., paginated_invoices=True, invoices_page_limit=200)` (`mcp_server/server.py`) :
+  bascule l'outil `list_invoices` exposé vers cette variante paginée — n'affecte aucune autre
+  tâche/essai (flag `False` par défaut, comportement des 280 essais déjà enregistrés inchangé).
+- `configs/experiment.yaml` : section `paginated_variant` (tasks: [T4p], modes: [classic],
+  repetitions: 10) — mode classique uniquement (le Code Mode réussit déjà T4 avec l'outil non
+  paginé, rien à sonder côté codemode).
+- `build_trial_specs`/`run_trial`/`run_all_trials_for_model` (`runner.py`) câblés pour générer et
+  exécuter ces essais en plus de la série existante (additif, essais déjà complétés toujours
+  sautés par id).
+- Tests ajoutés : `test_list_invoices_page_caps_limit_and_reports_pagination`,
+  `test_call_tool_list_invoices_paginated_caps_limit`,
+  `test_server_without_pagination_keeps_list_invoices_unbounded`,
+  `test_build_trial_specs_paginated_variant_is_additive`, `test_t4p_grades_identically_to_t4`,
+  mise à jour de `test_loads_all_6_tasks`. **103 tests passent**, ruff et mypy propres.
+
+**Lancé** : `tmux new-session -d -s cmbench 'bash scripts/run_all.sh'` sur la VM (GPU vérifié
+libre avant lancement : 1 MiB utilisé, 21 766 MiB libres, aucun process). `run_all.sh` boucle sur
+les 2 modèles sans modification — les 140 essais déjà faits par modèle sont sautés, seuls les 10
+nouveaux essais `T4p` tournent réellement. Confirmé en direct dans `results/run.log` : smoke test
+OK, 140 essais sautés, premier essai `gpt-oss-20b__classic__T4p__tools12__rep6` lancé à 17h20.
+Total attendu : 20 nouveaux essais (10 par modèle), classique uniquement.
+
+**Prochaine étape** (à la relance de Samir) : une fois les 20 essais terminés (`results/DONE`
+recréé), corriger `REPORT.md` selon les points C à F d'`ANALYSE-CLAUDE.md`, régénérer rapport et
+graphiques (`cmbench report`), mettre à jour `ARTICLE-NOTES.md`.
+
 ## Commandes utiles
 
 ```bash
 ssh redacted-gpu-vm "nvidia-smi --query-gpu=memory.used,memory.free --format=csv"
 ssh redacted-gpu-vm "source ~/code-mode-bench/.venv-vllm/bin/activate && python3 -c 'import torch; print(torch.__version__, torch.cuda.is_available())'"
+ssh redacted-gpu-vm "tail -n 30 ~/code-mode-bench/results/run.log"
+ssh redacted-gpu-vm "cat ~/code-mode-bench/results/run_status.json"
+ssh redacted-gpu-vm "ls ~/code-mode-bench/results/DONE 2>&1"  # existe = la série (y compris T4p) est finie
 ```
