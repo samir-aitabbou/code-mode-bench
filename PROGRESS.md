@@ -375,6 +375,89 @@ qwen3.5-9b:    T3 classic OK (142,1s) · T3 codemode OK (38,0s)
                T5 classic OK (255,0s, 8 requêtes) · T5 codemode OK (45,8s)
 ```
 
+## Second passage de Samir avant la série (2026-11-23/24) : 4 points supplémentaires
+
+Samir a redemandé 4 vérifications avant le feu vert, avec un seul récap consolidé à la fin.
+
+**1. Cause réelle du `provider_error` de gpt-oss-20b — trouvée et corrigée (pas un bug vLLM).**
+Le `provider_error` n'était pas un bug du parseur Harmony de vLLM comme on le pensait : lu le
+code source de `openai_tool_parser.py` dans vLLM — il attrape déjà sa propre
+`JSONDecodeError` et renvoie le texte brut tel quel (`200 OK`), confirmé dans les logs du
+serveur vLLM (le warning "Error decoding JSON tool call" est immédiatement suivi d'un `200
+OK` pour la même requête). Le vrai bug était **côté client, dans notre propre
+`src/cmbench/providers/openai_compat.py`** : `json.loads(tc.function.arguments or "{}")`
+plantait sans être rattrapé quand vLLM renvoyait ce texte de repli non-JSON, et l'exception
+remontait jusqu'en haut, étiquetée à tort `provider_error`, qui faisait échouer tout l'essai.
+Corrigé en ajoutant un champ `ToolCall.parse_error` : au lieu de planter, le client renvoie
+`arguments={}` + le message d'erreur, qui est ensuite présenté au modèle comme un résultat
+d'outil normal (`ERROR: ...`), avec retry, exactement comme pour une erreur "outil inconnu"
+déjà gérée. Vérifié empiriquement : en relançant T1-T4/T6 sur gpt-oss-20b après le correctif,
+**zéro `provider_error`** (T3 classic échoue maintenant honnêtement en `wrong_answer`, T3
+codemode et T4 codemode réussissent là où ils plantaient avant). Pas eu besoin des 30 minutes
+allouées à la recherche infructueuse — un vrai correctif a été trouvé directement.
+
+**2. Erreurs exactes de Gemma 4 et Qwen3.8-27B (pour validation de l'abandon par Samir) :**
+- **Gemma 4 26B-A4B** : erreur pydantic définitive au test de fumée —
+  `model type 'gemma4' but Transformers does not recognize this architecture`. Cause : son
+  architecture MoE exige `transformers>=5.0`, que toute version de vLLM utilisable sur le
+  driver CUDA 12.8 de cette VM épingle à `<5` (conflit de dépendances dur, pas un réglage).
+- **Qwen3.8-27B-INT4** : pas de crash, mais calcul numériquement faux et déterministe —
+  charge et répond vite (~1,3s) mais le champ `reasoning` est un charabia incohérent
+  (mélange de caractères latins/chinois/arabes sans aucun sens), identique sur 5 générations
+  indépendantes, identique avec/sans `--enforce-eager`, identique avec `--quantization
+  compressed-tensors` forcé explicitement, et identique sur 2 dépôts de quantification de
+  remplacement. Cause retenue : même mur que Gemma 4 mais côté architecture — la fiche
+  officielle du modèle exige `transformers>=5.8.0`, absent de notre pile vLLM.
+- Les deux décisions d'abandon restent recommandées : ce sont des murs de dépendances durs
+  sur cette VM, pas des problèmes de réglage qu'on pourrait encore corriger.
+
+**3. T1/T2/T6, 1 répétition, 2 modèles (re-vérifié à neuf après le correctif du point 1) :**
+les **12 cellules réussissent** (6 par modèle) :
+- gpt-oss-20b : classic T1/T2/T6 OK, codemode T1/T2/T6 OK.
+- qwen3.5-9b : classic T1 OK (7,8s), T2 OK (7,0s), T6 OK (6,3s) ; codemode T1 OK (7,2s), T2 OK
+  (9,4s), T6 OK (11,0s).
+Dépasse largement le plancher de CLAUDE.md §4 étape 10 (« au moins un modèle réussit presque
+à 100% en classic sur T1/T2 ») — les deux modèles le font.
+
+**4. Essai à blanc de `run_all.sh`** (config réduite à T1×2 répétitions, liste de modèles
+`gpt-oss-20b nonexistent-model qwen3.5-9b` pour forcer le chemin d'échec, dans
+`results_dryrun/` séparé — jamais touché `results/raw/` ni `configs/models.yaml` réels) :
+- enchaînement serve→smoke→série→stop→VRAM validé pour les 2 vrais modèles ;
+- saut propre du modèle inexistant (`serve_failed`, pas de blocage de la suite) ;
+- `run_status.json` et `run.log` mis à jour à chaque étape, `DONE` créé à la fin ;
+- **reprise validée** : relancé le même essai à blanc, les 8 essais déjà faits sont tous
+  sautés (`skipping already-completed trial ...`), compteur inchangé, VRAM toujours libre.
+- **Incident en cours de route (hors scope du code du benchmark) : la VM est partagée.** Un
+  collègue (`a-colleague`) avait une session Claude Code active qui utilisait le port 8000
+  (son appli `andriax`) et la VRAM (`ollama`) en parallèle, faussant d'abord le diagnostic (un
+  `vllm serve` à nous restait bloqué en "Application startup complete" sans jamais répondre —
+  en fait un conflit de port, pas un bug). On ne peut pas tuer les process d'un autre
+  utilisateur sans `sudo`, et `sudo` demande un mot de passe interactif que je ne peux pas
+  fournir : **décision avec Samir de ne pas forcer ça, et de changer notre port par défaut**
+  (8000 → **8010**, confirmé libre) plutôt que de dépendre d'un port partagé sur cette VM.
+  `scripts/serve_vllm.sh` et `src/cmbench/cli.py` mis à jour partout où 8000 était en dur,
+  toujours surchageable via `CMBENCH_VLLM_PORT`.
+- **Bug trouvé et corrigé en chemin (indépendant de l'incident de port) :** un process
+  `VLLM::EngineCore` orphelin peut garder la VRAM occupée après un `kill -9` du process
+  principal (SIGKILL sans arrêt propre) — observé en manipulant manuellement un serveur
+  bloqué. `stop_vllm.sh` traque et tue maintenant systématiquement tout `VLLM::EngineCore`
+  restant après avoir arrêté le process principal (sûr car un seul modèle tourne à la fois,
+  cf. CLAUDE.md §2). `run_all.sh` vérifie désormais le code de sortie de `stop_vllm.sh` et
+  s'arrête avec un statut `vram_not_freed` au lieu de continuer silencieusement si la VRAM
+  n'est pas libérée.
+
+**Durée projetée mise à jour** (à partir des latences réelles mesurées ci-dessus et au point
+3, extrapolées × répétitions prévues — approximation : échantillon de 1-2 essais par cellule,
+et la variante 60 outils est estimée avec les latences à 12 outils, probablement un peu
+optimiste) :
+- gpt-oss-20b : ~33 min (série principale) + ~14 min (variante 60 outils) ≈ **47 min**
+- qwen3.5-9b : ~111 min (série principale) + ~40 min (variante 60 outils) ≈ **151 min**
+- **Total calcul GPU : ~3,3h**, + changements de modèle (~10 min) ⇒ **environ 3,5h à 4,5h**
+  de bout en bout. Plus bas que l'estimation du pilote (~6,5h) car : (a) le correctif du
+  `provider_error` évite des essais qui plantaient vite puis auraient dû être repris, (b) les
+  nouvelles données post-correctifs remplacent plusieurs échecs rapides du pilote par des
+  essais qui tournent à terme (donc image plus complète mais pas forcément plus longue).
+
 Résultats complets fusionnés dans `results/pilot_2026-11-23/*.jsonl` (archive, pas la série
 finale — `results/raw/` a été vidé pour la série réelle). Plus aucun `timeout` artefact de
 harness dans ce nouveau pilote ; les échecs restants sont soit le comportement intended du
