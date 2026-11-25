@@ -13,7 +13,7 @@
 calling MCP tools one at a time) actually help, on real local models, on a real 24 GB GPU --
 or is it just a token-efficiency trick that doesn't matter in practice?
 
-**Three results, from 280 real trials on 2 models:**
+**Three results, from 300 real trials on 2 models:**
 
 1. **It's not just about tokens -- it's about finishing the task at all.** On data-heavy tasks
    (large volumes, chained aggregation, loops with writes), classic MCP tool-calling hit the
@@ -28,7 +28,9 @@ or is it just a token-efficiency trick that doesn't matter in practice?
 
 Full results, methodology, and the blog article once published: [`REPORT.md`](REPORT.md) *(blog
 link to come once the article is live on
-[samiraitabbou.hashnode.dev](https://samiraitabbou.hashnode.dev))*.
+[samiraitabbou.hashnode.dev](https://samiraitabbou.hashnode.dev))*. This is part 2 of a series;
+part 1 -- [MCP vs Code Mode: What Actually Changes, What the Numbers Say, and When to Use
+Which](https://samiraitabbou.hashnode.dev/mcp-vs-code-mode) -- is already published.
 
 ## Architecture
 
@@ -162,7 +164,7 @@ Full discussion: [`REPORT.md`](REPORT.md) §7.
   author = {Ait-Abbou, Samir},
   title  = {code-mode-bench: Code Mode vs classic MCP tool-calling, measured on local LLMs},
   year   = {2026},
-  url    = {https://github.com/samir-aitabbou/code-mode-bench}
+  url    = {https://github.com/samir-aitabbou/code-mode-bench-}
 }
 ```
 

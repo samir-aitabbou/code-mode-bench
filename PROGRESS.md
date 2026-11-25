@@ -687,6 +687,43 @@ Suite à la relecture indépendante `ANALYSE-CLAUDE.md`, correction de `REPORT.m
 - `ARTICLE-NOTES.md` mis à jour en conséquence (chiffres corrigés, anecdote T4 corrigée, nouvelle
   anecdote sur la sonde T4p, chiffres de tokens « propres » recentrés sur qwen3.5-9b).
 
+## Refonte des figures et anonymisation avant publication (2026-11-25)
+
+Suite à une relecture avant mise en public du dépôt :
+
+- **Figures** : `src/cmbench/report/plots.py` refondu dans le style publication scientifique déjà
+  utilisé par `scripts/paper_figures.py` (police serif STIX, palette Okabe-Ito, IC 95% de Wilson,
+  médiane + IQR, hachures « non comparable » sous 50% de réussite, `T4p` inclus sur la figure de
+  taux de réussite). `scripts/paper_figures.py` appelle désormais `plots.py` au lieu de dupliquer
+  ses couleurs/statistiques. `results/figures/` ne contient plus qu'un seul jeu de 8 figures
+  (01-06 = les 6 exigées par `CLAUDE.md` §6, 07-08 = schéma d'architecture et nuage de points sur
+  la limite de contexte) ; l'ancien dossier `results/figures/paper/` (doublon) a été supprimé.
+  `REPORT.md` embarque les 8 figures avec une légende numérotée (« *Figure N. …* »).
+  `tests/test_plots.py` ajouté (10 tests) ; bug trouvé et corrigé au passage (`detail` manquant
+  devient un `NaN` flottant après un aller-retour par un `DataFrame`/CSV, pas un `None` — faisait
+  planter le nuage de points sur la limite de contexte). **113 tests passent, ruff et mypy
+  propres.**
+- **Anonymisation** : recherche de secrets/informations internes dans tout le dépôt (y compris
+  `results/raw/traces` et l'historique git). Aucun secret (aucune clé API, aucun `.env` jamais
+  committé). Deux éléments internes trouvés et corrigés : le nom d'hôte/domaine/IP de la VM de
+  calcul (`redacted-gpu-vm`, son domaine complet, son IP) dans `DEVIATIONS.md`, `docs/METHODOLOGY.md`,
+  un commentaire de code (`sandbox/runner.py`) et plusieurs endroits de ce fichier ; le nom réel
+  d'un collègue dans ce fichier. Corrigés dans les fichiers actuels, **puis l'historique git
+  entier a été réécrit** (`git filter-repo --replace-text` puis `--replace-message`, sur
+  autorisation explicite de Samir) pour que ces deux noms ne soient plus retrouvables dans aucun
+  ancien commit ni message de commit. Une sauvegarde complète du dépôt a été faite avant
+  l'opération. **Tous les hash de commit ont changé** (le tag `v1.0.0`, déjà poussé sur GitHub
+  avec l'ancienne IP/l'ancien nom, a été conservé tel quel -- déjà exposé publiquement, le
+  réécrire ne retirerait rien -- un nouveau tag `v1.1.0` a été créé sur l'état final). Remotes
+  (`github`, `vm`) toujours configurés mais **plus synchronisés avec le nouvel historique** : un
+  `push --force` vers les deux est nécessaire (commandes données à Samir, pas exécuté par Claude
+  Code -- CLAUDE.md §0.2).
+- **README.md** : lien GitHub dans le bloc BibTeX corrigé vers le vrai nom du dépôt
+  (`code-mode-bench-`, avec le trait d'union -- `code-mode-bench` sans trait d'union, cité dans
+  `../CONTEXTE.md` et dans la demande initiale de Samir, n'existe pas sur GitHub ; vérifié via
+  l'API publique GitHub). Lien vers l'article 1 (déjà publié) ajouté dans le TL;DR. Nombre
+  d'essais corrigé (280 -> 300, oubli lors de l'ajout de `T4p`).
+
 ## Commandes utiles
 
 ```bash
