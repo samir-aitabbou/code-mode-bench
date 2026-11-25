@@ -20,7 +20,8 @@ or is it just a token-efficiency trick that doesn't matter in practice?
    (large volumes, chained aggregation, loops with writes), classic MCP tool-calling hit the
    model's context limit and failed outright; Code Mode kept the bulk data out of the model's
    context and succeeded on the same tasks.
-2. **Every single context-overflow failure (20/20) happened in classic mode, none in Code Mode** --
+2. **Every single context-overflow failure (35/35: 20 in the main series, 15 in the T4p probe)
+   happened in classic mode, none in Code Mode** --
    on a small GPU, context is the resource that runs out first, and Code Mode is a direct answer
    to that specific constraint.
 3. **The effect depends heavily on the model.** One model (gpt-oss-20b) went from 0% to 80-100%
@@ -48,7 +49,7 @@ about how the model accesses the tools, not what the tools can do.*
 ```bash
 uv sync --extra dev
 uv run cmbench data          # generate the deterministic reference database
-uv run pytest                # 98 tests, no GPU or API key needed (fake provider)
+uv run pytest                # 113 tests, no GPU or API key needed (fake provider)
 
 # Against a real vLLM server (see docs/REPRODUCE.md for the full setup):
 bash scripts/serve_vllm.sh gpt-oss-20b
@@ -76,7 +77,7 @@ uv run cmbench report                           # regenerate CSVs, figures, REPO
 |---|---|
 | H1: Code Mode cuts input tokens on data-heavy tasks | **Confirmed** |
 | H6: more tools => classic MCP pays more in tokens | **Confirmed** (+55% to +114%, 12->60 tools) |
-| H7: Code Mode finishes tasks classic mode can't, for context reasons | **Confirmed** (20/20 context-overflow failures are classic-mode) |
+| H7: Code Mode finishes tasks classic mode can't, for context reasons | **Confirmed** (35/35 context-overflow failures are classic-mode) |
 | H5: the effect depends on the model | **Confirmed** |
 
 Full table (all 6 tasks x 2 modes x 2 models x 2 tool-count variants) and all 7 hypotheses
