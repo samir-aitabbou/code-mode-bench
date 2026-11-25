@@ -34,47 +34,13 @@ Which](https://samiraitabbou.hashnode.dev/mcp-vs-code-mode) -- is already publis
 
 ## Architecture
 
-```
-                    ┌─────────────────────────┐
-                    │   configs/models.yaml   │
-                    │ configs/experiment.yaml │
-                    └────────────┬────────────┘
-                                 │
-                   ┌─────────────────────────┐
-                   │   cmbench.runner        │  orchestration, resume,
-                   │   (CLI: cmbench bench)  │  shuffled trial order
-                   └────────────┬─────────────┘
-                                 │  per trial
-              ┌──────────────────┴──────────────────┐
-              │                                       │
-     ┌────────▼────────┐                   ┌─────────▼─────────┐
-     │  modes/classic   │                   │  modes/codemode    │
-     │  tool-call loop  │                   │  typed_api.py +     │
-     │  (<=15 turns)    │                   │  execute_python()   │
-     └────────┬────────┘                   └─────────┬───────────┘
-              │                                        │
-              │  MCP tool calls              ┌─────────▼─────────┐
-              │                               │  sandbox/runner    │
-              │                               │  (isolated subproc,│
-              │                               │   no network)       │
-              │                               └─────────┬───────────┘
-              │                                          │ JSON-RPC bridge
-              └──────────────────┬───────────────────────┘
-                                   │
-                        ┌──────────▼──────────┐
-                        │  mcp_server (12 or   │
-                        │  60 tools) over the  │
-                        │  reference SQLite DB │
-                        └──────────┬───────────┘
-                                    │
-                         ┌──────────▼──────────┐
-                         │ providers/openai_    │  vLLM, OpenAI-
-                         │ compat -> vLLM       │  compatible API
-                         └──────────────────────┘
-```
+![Harness architecture](results/figures/07_setup_diagram.png)
 
-Both modes share the *same* MCP tool schemas and the *same* reference database, so the
-comparison is about how the model accesses the tools, not what the tools can do.
+*Harness architecture: an identical task prompt and grader feed both modes; classic mode
+exchanges full tool schemas and results with the model every turn, Code Mode exposes a single
+`execute_python` tool backed by a sandboxed script and a bridge to the MCP server. Both modes
+share the **same** MCP tool schemas and the **same** reference database, so the comparison is
+about how the model accesses the tools, not what the tools can do.*
 
 ## Quickstart
 
