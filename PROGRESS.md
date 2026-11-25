@@ -705,9 +705,9 @@ Suite à une relecture avant mise en public du dépôt :
   propres.**
 - **Anonymisation** : recherche de secrets/informations internes dans tout le dépôt (y compris
   `results/raw/traces` et l'historique git). Aucun secret (aucune clé API, aucun `.env` jamais
-  committé). Deux éléments internes trouvés et corrigés : le nom d'hôte/domaine/IP de la VM de
-  calcul (`redacted-gpu-vm`, son domaine complet, son IP) dans `DEVIATIONS.md`, `docs/METHODOLOGY.md`,
-  un commentaire de code (`sandbox/runner.py`) et plusieurs endroits de ce fichier ; le nom réel
+  committé). Deux éléments internes trouvés et corrigés : le nom d'hôte/domaine/IP réels de la VM
+  de calcul dans `DEVIATIONS.md`, `docs/METHODOLOGY.md`, un commentaire de code
+  (`sandbox/runner.py`) et plusieurs endroits de ce fichier ; le nom réel
   d'un collègue dans ce fichier. Corrigés dans les fichiers actuels, **puis l'historique git
   entier a été réécrit** (`git filter-repo --replace-text` puis `--replace-message`, sur
   autorisation explicite de Samir) pour que ces deux noms ne soient plus retrouvables dans aucun
