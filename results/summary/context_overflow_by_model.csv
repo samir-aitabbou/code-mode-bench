@@ -1,3 +1,3 @@
 model_id,mode,count
-gpt-oss-20b,classic,10
-qwen3.5-9b,classic,10
+gpt-oss-20b,classic,15
+qwen3.5-9b,classic,20

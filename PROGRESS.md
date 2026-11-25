@@ -652,6 +652,42 @@ Total attendu : 20 nouveaux essais (10 par modèle), classique uniquement.
 recréé), corriger `REPORT.md` selon les points C à F d'`ANALYSE-CLAUDE.md`, régénérer rapport et
 graphiques (`cmbench report`), mettre à jour `ARTICLE-NOTES.md`.
 
+## Corrections du rapport selon ANALYSE-CLAUDE.md, points C à F (2026-11-25)
+
+Suite à la relecture indépendante `ANALYSE-CLAUDE.md`, correction de `REPORT.md` (régénéré, pas
+édité à la main) sur les points demandés :
+
+- **C (tokens non comparables)** : `codemode_effect` (`aggregate.py`) calcule désormais une
+  colonne `tokens_comparable` (vrai seulement si classic **et** codemode ont un taux de réussite
+  > 0 sur cette paire modèle/tâche). `render.py` affiche `n/a¹` avec une note de bas de page
+  partout où ce n'est pas comparable (ex. gpt-oss sur T3/T4/T5 classique, où le `+919%` cité par
+  l'analyse n'apparaît plus). H1 (executive summary + table d'hypothèses) ne cite plus que les
+  paires comparables (qwen3.5-9b sur T3/T5), avec une formulation explicite au lieu d'un
+  intervalle ambigu type « X% to Y% » (corrige aussi le point F sur la formulation de H1).
+- **D (tool bloat sur les deux modes)** : `_bloat_range_text()` calcule désormais la fourchette
+  par mode ; l'executive summary, §4.3 et la ligne H6 citent explicitement les deux (classique
+  **et** codemode), avec l'explication (le `tools.py` généré liste aussi les 60 outils).
+- **E (H3 infirmée sur les tâches lourdes)** : verdict H3 reformulé en « Confirmed on simple
+  tasks; disconfirmed on data-heavy tasks », présenté comme un résultat secondaire à part entière,
+  pas une exception à mettre de côté.
+- **F (détails)** : ajout de la déviation sur la limite de 900s (absente de `DEVIATIONS.md`,
+  maintenant documentée avec sa justification complète) ; explication de T4/T4p corrigée partout
+  (§4.1 note, §4.5, exemple de trace §5, H7) : l'appel qui déborde porte sur *toutes* les factures
+  en retard de *tous* les clients (filtre par statut seul), pas sur « un client avec beaucoup de
+  factures ».
+- **Nouvelle §4.5** dans `REPORT.md` : résultat de la sonde `T4p` (voir section précédente),
+  présentée séparément de la grille principale à 6 tâches (exclue de `_main_results_table`, du
+  tableau H7/context-overflow du cœur de l'expérience, et de la figure de répartition des échecs
+  — `cli.py`/`plots.py` filtrent explicitement `task_id != "T4p"` partout où c'était nécessaire ;
+  bug trouvé et corrigé au passage : les 4 fonctions de `plots.py` faisaient un `.loc[(t,
+  "codemode"), ...]` sur chaque tâche de la grille 12-outils, qui plantait sur `T4p` (pas de ligne
+  codemode) avant la correction).
+- Tests ajoutés : `test_codemode_effect_flags_token_comparison_as_not_comparable_when_classic_fails`.
+  **104 tests passent**, ruff et mypy propres. Rapport, CSV et figures régénérés avec
+  `uv run cmbench report` à partir des 300 essais réels (rien recopié à la main).
+- `ARTICLE-NOTES.md` mis à jour en conséquence (chiffres corrigés, anecdote T4 corrigée, nouvelle
+  anecdote sur la sonde T4p, chiffres de tokens « propres » recentrés sur qwen3.5-9b).
+
 ## Commandes utiles
 
 ```bash

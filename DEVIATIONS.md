@@ -61,6 +61,45 @@ already observed on the data-heavy tasks (T3/T4/T5). Running it anyway would bia
 comparison (an artificial context-overflow handicap from VRAM alone, not from the model's
 real capability), so it was dropped rather than accepted as a crippled 3rd data point.
 
+## Per-trial wall-clock limit raised from 600s (PLAN.md) to 900s
+
+PLAN.md §4 specifies 600s max per trial. Raised to 900s on 2026-11-23 after the T5-classic
+investigation (see `configs/experiment.yaml`'s `limits.max_trial_seconds` comment and
+`PROGRESS.md`): gpt-oss-20b naturally converges to a correct `FINAL_ANSWER` at ~670s on that
+task, just over the old 600s limit, and was being counted as a `timeout` failure while still
+genuinely converging -- an artifact of the harness, not a real model limitation, and one that
+specifically understated classic mode's success rate relative to Code Mode on the data-heavy
+tasks this report's headline results are about. The per-request client timeout
+(`limits.request_timeout_s`) was raised the same day, in two steps, for the same reason
+(120s -> 180s -> 400s): qwen3.5-9b's T5-classic requests were observed taking up to ~191s on a
+single slow-but-progressing request, well under the overall trial budget.
+
+## T4 classical paginated-invoices probe (T4p) added after the full series (not in PLAN.md)
+
+Added 2026-11-24/25 after an independent review of the results (`ANALYSE-CLAUDE.md` point A)
+questioned whether T4's 0% classic-mode success rate (§4.1, §5) measured the model's reasoning
+or simply this harness's tool design: the only `list_invoices` tool available to T4 returns
+every matching invoice in one unbounded call (no pagination), so a single call for all overdue
+invoices across all customers already exceeds `max_model_len` before the model gets a chance to
+reason about per-customer counts.
+
+To test this directly, a second `list_invoices` tool variant was added
+(`CrmTools.list_invoices_page`, enabled only for this probe) that caps `limit` at 200 and
+reports `total_count`/`has_more`, so a model that loops over `offset` can in principle retrieve
+every overdue invoice without any single call overflowing. 10 classic-mode trials per model
+(`T4p`, otherwise identical to T4) were run against this paginated tool; Code Mode was not
+re-tested, since it already succeeds on T4 with the original, unpaginated tool.
+
+**Result: still 0/20 success**, for a different reason than T4's single-call overflow -- see
+§4.5. This is reported as observed (CLAUDE.md §0.5): a well-designed paginated tool removes the
+single-oversized-call failure mode, but classic mode's turn-by-turn, full-history-resend design
+still accumulates enough tool output across the ~5 pages needed to cover all overdue invoices
+(plus the per-customer write calls) to exceed the 32,768-token context window in most trials, or
+to make the model give up (and sometimes skip the write actions entirely) before finishing in
+the rest. The probe is additive to the existing 280-trial series; `experiment.yaml`'s
+`paginated_variant` section and `runner.py`'s `build_trial_specs`/`run_trial` wiring are
+unconditional on and invisible to every other task/trial.
+
 ## Shared VM: default vLLM port moved from 8000 to 8010
 
 Discovered 2026-11-23/24: port 8000 on `redacted-gpu-vm` can be held by another user's own

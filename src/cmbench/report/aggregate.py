@@ -84,6 +84,14 @@ def codemode_effect(cells: pd.DataFrame) -> pd.DataFrame:
                 return None
             return float(100.0 * (codemode[field] - base) / base)
 
+        # ANALYSE-CLAUDE.md point C: when either side's success rate is 0,
+        # its median tokens come from trials that mostly failed early
+        # (e.g. one request before a context_overflow), not from
+        # completing the task -- a token pct-change against that median
+        # compares "how much it costs to fail" with "how much it costs
+        # to succeed", which is not a meaningful number and must not be
+        # reported as if it measured Code Mode's token efficiency.
+        tokens_comparable = bool(classic["success_rate"] > 0 and codemode["success_rate"] > 0)
         records.append(
             {
                 "model_id": model_id,
@@ -92,6 +100,7 @@ def codemode_effect(cells: pd.DataFrame) -> pd.DataFrame:
                 "codemode_success_rate": codemode["success_rate"],
                 "success_rate_diff_pp": 100.0
                 * (codemode["success_rate"] - classic["success_rate"]),
+                "tokens_comparable": tokens_comparable,
                 "prompt_tokens_pct_change": pct_change("median_prompt_tokens"),
                 "completion_tokens_pct_change": pct_change("median_completion_tokens"),
             }
@@ -104,6 +113,7 @@ def codemode_effect(cells: pd.DataFrame) -> pd.DataFrame:
                 "classic_success_rate",
                 "codemode_success_rate",
                 "success_rate_diff_pp",
+                "tokens_comparable",
                 "prompt_tokens_pct_change",
                 "completion_tokens_pct_change",
             ]

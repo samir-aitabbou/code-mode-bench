@@ -18,6 +18,11 @@ from matplotlib.figure import Figure
 
 matplotlib.use("Agg")
 
+# T4p is a classic-only complementary probe (ANALYSE-CLAUDE.md point A,
+# DEVIATIONS.md), not part of the 6-task x 2-mode grid these figures
+# plot; it has no codemode counterpart to pair it with.
+PAGINATED_PROBE_TASK = "T4p"
+
 CLASSIC = "#64748b"
 CODEMODE = "#d97706"
 SUCCESS = "#16a34a"
@@ -77,7 +82,7 @@ def _grouped_bar(
 def fig_input_tokens_by_task(cells: pd.DataFrame, out_path: Path) -> None:
     """1. Median input (prompt) tokens per task, classic vs codemode,
     one subplot per model (main 12-tool series only)."""
-    main = cells[cells["tool_count"] == 12]
+    main = cells[(cells["tool_count"] == 12) & (cells["task_id"] != PAGINATED_PROBE_TASK)]
     models = sorted(main["model_id"].unique())
     fig, axes = plt.subplots(1, len(models), figsize=(16, 7))
     axes = axes if hasattr(axes, "__len__") else [axes]
@@ -100,7 +105,7 @@ def fig_input_tokens_by_task(cells: pd.DataFrame, out_path: Path) -> None:
 def fig_gpu_time_per_trial(cells: pd.DataFrame, out_path: Path) -> None:
     """2. Median GPU time per successful trial, classic vs codemode, one
     subplot per model (main 12-tool series only)."""
-    main = cells[cells["tool_count"] == 12]
+    main = cells[(cells["tool_count"] == 12) & (cells["task_id"] != PAGINATED_PROBE_TASK)]
     models = sorted(main["model_id"].unique())
     fig, axes = plt.subplots(1, len(models), figsize=(16, 7))
     axes = axes if hasattr(axes, "__len__") else [axes]
@@ -131,7 +136,7 @@ def fig_gpu_time_per_trial(cells: pd.DataFrame, out_path: Path) -> None:
 def fig_success_rate_with_ci(cells: pd.DataFrame, out_path: Path) -> None:
     """3. Success rate with Wilson 95% CI, classic vs codemode, one
     subplot per model (main 12-tool series only)."""
-    main = cells[cells["tool_count"] == 12]
+    main = cells[(cells["tool_count"] == 12) & (cells["task_id"] != PAGINATED_PROBE_TASK)]
     models = sorted(main["model_id"].unique())
     fig, axes = plt.subplots(1, len(models), figsize=(16, 7))
     axes = axes if hasattr(axes, "__len__") else [axes]
@@ -167,7 +172,7 @@ def fig_success_rate_with_ci(cells: pd.DataFrame, out_path: Path) -> None:
 def fig_latency(cells: pd.DataFrame, out_path: Path) -> None:
     """4. Median end-to-end latency per task, classic vs codemode, one
     subplot per model (main 12-tool series only)."""
-    main = cells[cells["tool_count"] == 12]
+    main = cells[(cells["tool_count"] == 12) & (cells["task_id"] != PAGINATED_PROBE_TASK)]
     models = sorted(main["model_id"].unique())
     fig, axes = plt.subplots(1, len(models), figsize=(16, 7))
     axes = axes if hasattr(axes, "__len__") else [axes]

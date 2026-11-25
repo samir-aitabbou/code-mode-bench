@@ -1,27 +1,40 @@
 # Code Mode vs classic MCP tool-calling: a local-LLM benchmark
 
-*Generated 2026-11-24 from 280 trial records in `results/raw/`.*
+*Generated 2026-11-25 from 300 trial records in `results/raw/`.*
 
 ## 1. Executive summary
 
-- Across 280 trials (7,872,185 tokens, ~4.9 GPU-hours on a
-  single L40S-24Q, ~$2.44 estimated at $0.50/GPU-hour), Code Mode matched or beat
+- Across 300 trials (9,111,154 tokens, ~5.2 GPU-hours on a
+  single L40S-24Q, ~$2.62 estimated at $0.50/GPU-hour), Code Mode matched or beat
   classic MCP tool-calling on every data-heavy task (T3, T4, T5) for both models tested.
 - Both models solved T1/T2 ("simple" tasks) in classic mode at 100%
   success, confirming the harness and grader are sound (CLAUDE.md §4 step-10 sanity check) before
   trusting the harder-task results below.
-- **H7 confirmed**: every `context_overflow` failure (20 total)
-  happened in classic mode; none in Code Mode. On this
-  24 GB GPU, context length is the binding constraint classic MCP runs into on T4, and Code Mode
-  sidesteps it by keeping bulk data out of the model's context.
-- **H1 confirmed on data-heavy tasks**: Code Mode cuts median input tokens by double digits on
-  T3/T5 for both models (see §4.1), at the cost of more output tokens (H3, confirmed: Code Mode
-  writes code, which costs completion tokens).
-- **H6 confirmed**: going from 12 to 60 tool definitions grows classic mode's median input tokens
-  by roughly 55-114% on T3/T5 (see §4.3) -- tool bloat is a real, measurable tax on classic MCP.
+- **H7 confirmed**: every `context_overflow` failure in the core 6-task design
+  (20 total) happened in classic mode; none in Code Mode,
+  all on T4. On this 24 GB GPU, context length is the binding constraint
+  classic MCP runs into, and Code Mode sidesteps it by keeping bulk data out of the model's
+  context.
+- **T4 specifically fails 0/20 in classic mode for a tool-design reason, and a follow-up probe
+  shows that isn't the whole story**: the only `list_invoices` tool classic mode had access to
+  returns every matching invoice in one unbounded call. A follow-up run with a properly paginated
+  version of that same tool (`T4p`, §4.5) still scored 0/20: classic mode's
+  turn-by-turn, full-history-resend design keeps re-accumulating tool output across the several
+  pages this task needs, so pagination alone does not rescue it here.
+- **H1 confirmed, but only where the comparison is meaningful**: on the (model, task) pairs where
+  classic mode actually completes the task often enough to compare (T3: qwen3.5-9b -51%; T5: qwen3.5-9b -65%),
+  Code Mode cuts median input tokens substantially (see §4.2) -- at the cost of more output tokens
+  on simple tasks (H3), though output tokens actually *drop* on T3/T5 (see H3, §6).
+- **H6 confirmed, in both modes**: going from 12 to 60 tool definitions grows median input tokens
+  on T3/T5 by +55% to +114% in classic mode and
+  -6% to +97% in Code Mode (see §4.3) -- tool bloat is a real,
+  measurable tax on both ways of calling tools here, since this harness's Code Mode shows the
+  model every tool in `tools.py` rather than a searchable subset.
 - **H5 confirmed, nuanced**: the two models gain very differently from Code Mode -- gpt-oss-20b
   goes from 0% to 80-100% success on T3-T5 classic, while qwen3.5-9b already handles most of these
   tasks in classic mode and gains mainly in token efficiency, not success rate (see §4.4 and §6).
+  Part of gpt-oss-20b's classic-mode rescue reflects a vLLM Harmony-parser bug this model hits
+  more often in classic mode (§5); qwen3.5-9b is the cleaner evidence for the general effect.
 - Only 2 of the 4 models planned in `PLAN.md` actually ran; two were dropped for hard dependency
   conflicts on this VM's CUDA 12.8 driver, documented in full in §8 (Deviations from plan).
 
@@ -57,6 +70,9 @@ aggregation:
 - **T5 (Large-volume filter)**: Among orders placed in October 2026 (order_date between 2026-10-01 and 2026-10-31 inclusive) in the 'Electronics' product category, return the 5 largest orders by amount, ranked from highest to lowest.
 - **T6 (Textual / free-form)**: Read customer C0107's 3 most recent tickets and state the single dominant complaint category among them. The dominant category is whichever category appears most often among the 3 tickets. If all 3 tickets have different categories (no majority), the dominant category is the most recent ticket's category.
 
+A seventh, `T4p`, reruns T4's exact statement against a differently-served tool and is reported
+separately in §4.5, not among these six.
+
 ### 3.2 Modes
 
 - **Classic**: the standard MCP tool-calling loop -- the model receives tool schemas, calls a
@@ -73,10 +89,11 @@ aggregation:
 ### 3.3 Repetitions and statistics
 
 10 repetitions per (model, mode, task) in the main 12-tool series, 5 repetitions per (model,
-mode, task) in the 60-tool variant (T3/T5 only) -- 140 trials per model, 280 total. Success
-rates are reported with 95% Wilson confidence intervals (appropriate for small n and rates near
-0/1); token and latency figures use the median, which is robust to the occasional very slow or
-very token-heavy retry.
+mode, task) in the 60-tool variant (T3/T5 only) -- 140 trials per model, 280 total for this core
+6-task design, plus a 10-trials-per-model complementary probe (`T4p`, classic mode only, §4.5)
+added afterward, for 300 trials overall. Success rates are reported with 95% Wilson
+confidence intervals (appropriate for small n and rates near 0/1); token and latency figures use
+the median, which is robust to the occasional very slow or very token-heavy retry.
 
 **Important methodological note on "input tokens":** in classic mode, each turn resends the
 whole growing conversation to the model, so the `prompt_tokens` figure reported per trial is the
@@ -129,16 +146,18 @@ the final database state and the `outbox` table are checked, not just the text r
 |---|---|---|---|---|---|---|
 | gpt-oss-20b | T1 | 100% | 100% | +0 | +24% | +15% |
 | gpt-oss-20b | T2 | 100% | 100% | +0 | -18% | -16% |
-| gpt-oss-20b | T3 | 0% | 100% | +100 | -67% | -75% |
-| gpt-oss-20b | T4 | 0% | 80% | +80 | +919% | +2500% |
-| gpt-oss-20b | T5 | 0% | 100% | +100 | -46% | -89% |
+| gpt-oss-20b | T3 | 0% | 100% | +100 | n/a¹ | n/a¹ |
+| gpt-oss-20b | T4 | 0% | 80% | +80 | n/a¹ | n/a¹ |
+| gpt-oss-20b | T5 | 0% | 100% | +100 | n/a¹ | n/a¹ |
 | gpt-oss-20b | T6 | 100% | 100% | +0 | +21% | +47% |
 | qwen3.5-9b | T1 | 100% | 100% | +0 | -20% | -3% |
 | qwen3.5-9b | T2 | 100% | 100% | +0 | -39% | +44% |
 | qwen3.5-9b | T3 | 100% | 100% | +0 | -51% | -73% |
-| qwen3.5-9b | T4 | 0% | 100% | +100 | +471% | +4478% |
+| qwen3.5-9b | T4 | 0% | 100% | +100 | n/a¹ | n/a¹ |
 | qwen3.5-9b | T5 | 100% | 100% | +0 | -65% | -82% |
 | qwen3.5-9b | T6 | 100% | 100% | +0 | +28% | +80% |
+
+¹ *n/a: classic mode's success rate on this (model, task) is 0%, so its median tokens come from trials that mostly failed early (e.g. one request before a `context_overflow`), not from completing the task -- comparing that against Code Mode's (mostly completed) median would compare the cost of failing with the cost of succeeding, not a token-efficiency effect (ANALYSE-CLAUDE.md point C).*
 
 ![Input tokens by task](figures/01_input_tokens_by_task.png)
 ![GPU time per trial](figures/02_gpu_time_per_trial.png)
@@ -160,6 +179,14 @@ the final database state and the `outbox` table are checked, not just the text r
 
 ![Effect of tool count](figures/05_tool_count_effect.png)
 
+Tool-definition bloat is not a classic-mode-only cost here: Code Mode's input tokens grow by
+-6% to +97% too, almost as much as classic mode's
++55% to +114% (ANALYSE-CLAUDE.md point D), because this implementation's
+generated `tools.py` lists every available tool with its full docstring every time, exactly like
+the tool schemas classic mode is shown. A tool-search/discovery mechanism (e.g. a `search()` call
+the model uses before importing specific tools) would be needed to make Code Mode immune to this
+cost -- not implemented here.
+
 ### 4.4 Cross-model comparison (H5)
 
 gpt-oss-20b: average +46.7 percentage points across tasks; qwen3.5-9b: average +16.7 percentage points across tasks.
@@ -179,11 +206,41 @@ more about this task's write-heavy, data-dump-heavy shape (see §6, H7).
 | gpt-oss-20b | classic | 10 |
 | qwen3.5-9b | classic | 10 |
 
-Every `context_overflow` failure happened in classic mode, on T4 in all cases (the single
-`list_invoices(status=...)` call needed for that task returns ~900 rows / ~108K characters on
-its own for some customers, pushing the single request past `max_model_len=32768`). Code Mode
-never hit this failure: the same raw data is filtered inside the sandbox and only the small
-final result returns to the model's context.
+Every `context_overflow` failure in the core 6-task design happened in classic mode, on
+T4 in all cases. T4's `list_invoices` tool takes no per-customer filter for
+this task's `status='overdue'` query, so a single call returns *every* overdue invoice across
+*all* ~500 customers at once (~900 rows / ~108K characters), pushing that one request past
+`max_model_len=32768` before the model gets anywhere near reasoning about per-customer counts.
+Code Mode never hit this failure: the same raw data is filtered inside the sandbox and only the
+small final result returns to the model's context.
+
+### 4.5 Complementary probe: T4 classic with a paginated invoices tool
+
+T4's 0% classic-mode success rate above could, in principle, measure this harness's tool design
+rather than the models' reasoning (ANALYSE-CLAUDE.md point A): the single unbounded
+`list_invoices` call T4 depends on is, by construction, too large for a classic-mode request. To
+test that directly, `T4p` reruns the exact same task against a paginated `list_invoices` variant
+that caps `limit` at 200 and reports `total_count`/`has_more` -- a model that loops over `offset`
+can retrieve every overdue invoice without any single call overflowing. Classic mode only (Code
+Mode already succeeds on T4 with the original tool); 10 trials per model:
+
+| Model | Mode | n | Successes | Failure types |
+|---|---|---|---|---|
+| gpt-oss-20b | classic | 10 | 0 | wrong_answer x5, context_overflow x5 |
+| qwen3.5-9b | classic | 10 | 0 | context_overflow x10 |
+
+**Result: still 0/20 success**, for a different reason than T4's single-call
+overflow. Covering every one of the ~500 customers' overdue invoices takes ~5 pages at 200 rows
+each, plus the per-customer `update_customer_note`/`send_email` write calls; classic mode resends
+the whole growing conversation on every turn (§3.3), so by the time it has paged through enough
+invoices to answer, the *accumulated* conversation itself exceeds the 32,768-token window in most
+trials (`context_overflow`) -- or the model gives up partway through paging and answers with an
+incomplete customer list, sometimes without ever calling the write tools at all (`wrong_answer`;
+confirmed by manual trace review, e.g. `gpt-oss-20b__classic__T4p__tools12__rep9`: only 2 tool
+calls total, `FINAL_ANSWER` listing 19 of the 212 expected customers, no write tool called for
+any of them). A well-designed paginated tool removes the *single-oversized-call* failure mode,
+but does not by itself make this task solvable in classic mode under this GPU's context budget
+and this harness's full-history-resend design -- see `DEVIATIONS.md` for the full writeup.
 
 ## 5. Failure analysis
 
@@ -202,8 +259,8 @@ Representative examples from the raw traces (`results/raw/traces/`):
 
 1. **`gpt-oss-20b__classic__T4__tools12__rep0` (context_overflow)**: `Error code: 400 - Input
    length (45925) exceeds model's maximum context length (32768).` -- the expected failure mode
-   described above; the single-call result from `list_invoices` for a customer with many invoices
-   alone exceeds the window.
+   described above; `list_invoices(status='overdue')` has no customer filter, so this one call
+   already returns every overdue invoice across all customers combined, not just one customer's.
 2. **`qwen3.5-9b__classic__T4__tools12__rep5` (context_overflow)**: `Error code: 400 - This
    model's maximum context length is 32768 tokens. However, you requested 0 output tokens and
    your prompt contains at least 32769` -- same failure mode, confirming it is task-shape-driven
@@ -225,18 +282,23 @@ Representative examples from the raw traces (`results/raw/traces/`):
    limit` -- classic mode's many sequential tool-call round-trips on a large-volume task (T5)
    occasionally outruns even the generous 900s budget; Code Mode's single-script execution never
    hit this limit.
+6. **`gpt-oss-20b__classic__T4p__tools12__rep9` (wrong_answer, §4.5 probe)**: even with a
+   paginated `list_invoices`, the model made only 2 tool calls total before answering with
+   `FINAL_ANSWER` listing 19 of the 212 customers actually expected, and never called
+   `update_customer_note`/`send_email` for any of them -- it stopped paging (and writing) well
+   short of covering the task, not because any single call overflowed.
 
 ## 6. Hypotheses H1-H7
 
 | # | Hypothesis | Verdict | Evidence |
 |---|---|---|---|
-| H1 | Code Mode strongly cuts input tokens on chained/data-heavy tasks | **Confirmed** | T3/T5 input tokens drop -59% to -56% on average (§4.2) |
+| H1 | Code Mode strongly cuts input tokens on chained/data-heavy tasks | **Confirmed, on the pairs where the comparison is meaningful** | T3: qwen3.5-9b -51%; T5: qwen3.5-9b -65% (§4.2; gpt-oss-20b's T3/T5 classic cells are excluded as not comparable -- its 0% classic success rate there means its "tokens" are from aborted trials, point C) |
 | H2 | On a single-call task, Code Mode gives nothing (or costs more) | **Confirmed** | T1: 0pp success difference for both models; token changes are small and mixed in sign (§4.2) |
-| H3 | Code Mode increases output tokens (the model writes code) | **Confirmed, with exceptions on T3/T5** | T1/T4/T6 show positive completion-token changes; T3/T5 actually *drop* because Code Mode's output is a short script instead of restating large tool results (§4.2) |
+| H3 | Code Mode increases output tokens (the model writes code) | **Confirmed on simple tasks; disconfirmed on data-heavy tasks** | T1/T4/T6 show positive completion-token changes, as expected; T3/T5 actually *drop* sharply instead, because Code Mode's output is a short script instead of restating large tool results in prose -- a genuine secondary finding, not an exception to wave away (§4.2) |
 | H4 | Classic MCP stays better on open-ended/textual tasks | **Not confirmed as stated; no difference found** | T6 (free-form): 100% success, near-identical tokens in both modes for both models -- no classic-mode advantage observed on this task shape (§4.1) |
-| H5 | Code Mode's effect depends on the model | **Confirmed** | gpt-oss-20b: large success-rate rescue; qwen3.5-9b: mostly a token-efficiency gain, not a rescue (§4.4) |
-| H6 | More tools => classic MCP pays more in tokens | **Confirmed** | 12->60 tools grows classic median input tokens by 55-114% on T3/T5 (§4.3) |
-| H7 | On a small GPU, Code Mode finishes tasks classic mode cannot, for context reasons | **Confirmed** | All 20 `context_overflow` failures are classic-mode, all on T4; 0 in Code Mode (§4.3/§5) |
+| H5 | Code Mode's effect depends on the model | **Confirmed** | gpt-oss-20b: large success-rate rescue (partly reflecting a vLLM parser bug it hits more in classic mode, §5); qwen3.5-9b: mostly a token-efficiency gain, not a rescue, and the cleaner evidence for this hypothesis (§4.4) |
+| H6 | More tools => classic MCP pays more in tokens | **Confirmed in both modes** | 12->60 tools grows median input tokens by +55% to +114% in classic mode and -6% to +97% in Code Mode on T3/T5 (§4.3) -- this implementation's Code Mode shows every tool too, so it is not immune |
+| H7 | On a small GPU, Code Mode finishes tasks classic mode cannot, for context reasons | **Confirmed for the single-oversized-call failure mode; a paginated tool alone does not fully fix classic mode** | All 20 core-series `context_overflow` failures are classic-mode, all on T4; 0 in Code Mode (§4.3/§5). A follow-up with a paginated tool (T4p, §4.5) still scored 0/20 in classic mode, for a different (accumulated-context) reason |
 
 ## 7. Limitations and threats to validity
 
@@ -320,6 +382,45 @@ A realistic `max_model_len` of ~9000 tokens is far below the ~21,000-46,000-toke
 already observed on the data-heavy tasks (T3/T4/T5). Running it anyway would bias the
 comparison (an artificial context-overflow handicap from VRAM alone, not from the model's
 real capability), so it was dropped rather than accepted as a crippled 3rd data point.
+
+### Per-trial wall-clock limit raised from 600s (PLAN.md) to 900s
+
+PLAN.md §4 specifies 600s max per trial. Raised to 900s on 2026-11-23 after the T5-classic
+investigation (see `configs/experiment.yaml`'s `limits.max_trial_seconds` comment and
+`PROGRESS.md`): gpt-oss-20b naturally converges to a correct `FINAL_ANSWER` at ~670s on that
+task, just over the old 600s limit, and was being counted as a `timeout` failure while still
+genuinely converging -- an artifact of the harness, not a real model limitation, and one that
+specifically understated classic mode's success rate relative to Code Mode on the data-heavy
+tasks this report's headline results are about. The per-request client timeout
+(`limits.request_timeout_s`) was raised the same day, in two steps, for the same reason
+(120s -> 180s -> 400s): qwen3.5-9b's T5-classic requests were observed taking up to ~191s on a
+single slow-but-progressing request, well under the overall trial budget.
+
+### T4 classical paginated-invoices probe (T4p) added after the full series (not in PLAN.md)
+
+Added 2026-11-24/25 after an independent review of the results (`ANALYSE-CLAUDE.md` point A)
+questioned whether T4's 0% classic-mode success rate (§4.1, §5) measured the model's reasoning
+or simply this harness's tool design: the only `list_invoices` tool available to T4 returns
+every matching invoice in one unbounded call (no pagination), so a single call for all overdue
+invoices across all customers already exceeds `max_model_len` before the model gets a chance to
+reason about per-customer counts.
+
+To test this directly, a second `list_invoices` tool variant was added
+(`CrmTools.list_invoices_page`, enabled only for this probe) that caps `limit` at 200 and
+reports `total_count`/`has_more`, so a model that loops over `offset` can in principle retrieve
+every overdue invoice without any single call overflowing. 10 classic-mode trials per model
+(`T4p`, otherwise identical to T4) were run against this paginated tool; Code Mode was not
+re-tested, since it already succeeds on T4 with the original, unpaginated tool.
+
+**Result: still 0/20 success**, for a different reason than T4's single-call overflow -- see
+§4.5. This is reported as observed (CLAUDE.md §0.5): a well-designed paginated tool removes the
+single-oversized-call failure mode, but classic mode's turn-by-turn, full-history-resend design
+still accumulates enough tool output across the ~5 pages needed to cover all overdue invoices
+(plus the per-customer write calls) to exceed the 32,768-token context window in most trials, or
+to make the model give up (and sometimes skip the write actions entirely) before finishing in
+the rest. The probe is additive to the existing 280-trial series; `experiment.yaml`'s
+`paginated_variant` section and `runner.py`'s `build_trial_specs`/`run_trial` wiring are
+unconditional on and invisible to every other task/trial.
 
 ### Shared VM: default vLLM port moved from 8000 to 8010
 

@@ -274,7 +274,13 @@ def report(
     aggregate.write_all(raw_dir, summary_dir)
     cells = pd.read_csv(summary_dir / "by_cell.csv")
     tool_bloat = pd.read_csv(summary_dir / "tool_bloat_effect.csv")
-    failures = pd.read_csv(summary_dir / "failure_breakdown.csv")
+    # failure_breakdown.csv on disk covers every trial, including the
+    # classic-only T4p complementary probe (ANALYSE-CLAUDE.md point A);
+    # the figure stays scoped to the core 6-task x 2-mode design (T4p is
+    # reported separately, REPORT.md §4.5), same as cells/tool_bloat.
+    failures = aggregate.failure_breakdown(
+        pd.read_csv(summary_dir / "trials.csv").query("task_id != 'T4p'")
+    )
     plots.write_all(cells, tool_bloat, failures, figures_dir)
     render.render_report(
         summary_dir=summary_dir,

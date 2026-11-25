@@ -92,6 +92,30 @@ def test_codemode_effect_pairs_classic_and_codemode_for_main_series(tmp_path: Pa
     assert row["prompt_tokens_pct_change"] == -50.0  # 100 vs 200 = -50%
 
 
+def test_codemode_effect_flags_token_comparison_as_not_comparable_when_classic_fails(
+    tmp_path: Path,
+) -> None:
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    rows = [
+        # classic always fails (success_rate 0) -- its median tokens come
+        # from aborted trials, not completed ones (ANALYSE-CLAUDE.md
+        # point C), so the pct-change against codemode must be flagged.
+        _record(trial_id="c0", mode="classic", prompt_tokens=50, success=False,
+                failure_type="context_overflow"),
+        _record(trial_id="m0", mode="codemode", prompt_tokens=500, success=True),
+    ]
+    _write_jsonl(raw_dir / f"{MODEL}.jsonl", rows)
+    cells = by_cell(load_trials(raw_dir))
+
+    effect = codemode_effect(cells)
+
+    assert len(effect) == 1
+    row = effect.iloc[0]
+    assert row["classic_success_rate"] == 0.0
+    assert row["tokens_comparable"] is False or row["tokens_comparable"] == 0
+
+
 def test_tool_bloat_effect_compares_12_vs_60_tools(tmp_path: Path) -> None:
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()

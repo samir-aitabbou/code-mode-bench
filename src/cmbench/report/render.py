@@ -14,7 +14,14 @@ from typing import Any, cast
 import pandas as pd
 import yaml
 
+from cmbench.report.aggregate import context_overflow_by_model, failure_breakdown
+
 MAIN_TOOL_COUNT = 12
+# T4p is a complementary probe added after the main 6-task design
+# (ANALYSE-CLAUDE.md point A, DEVIATIONS.md); it has no codemode trials
+# and is reported separately (§4.5), never folded into the main
+# 6-task x 2-mode grid or its aggregates.
+PAGINATED_PROBE_TASK = "T4p"
 
 
 def _pct(value: Any) -> str:
@@ -37,7 +44,9 @@ def _fmt_num(value: Any) -> str:
 
 
 def _main_results_table(cells: pd.DataFrame) -> str:
-    main = cells[cells["tool_count"] == MAIN_TOOL_COUNT].copy()
+    main = cells[
+        (cells["tool_count"] == MAIN_TOOL_COUNT) & (cells["task_id"] != PAGINATED_PROBE_TASK)
+    ].copy()
     lines = [
         "| Model | Mode | Task | Success (95% CI) | Median input tok. | Median output tok. "
         "| Median requests | Median latency (s) | Median GPU-s |",
@@ -53,6 +62,16 @@ def _main_results_table(cells: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+def _token_change_cell(value: Any, comparable: Any) -> str:
+    """ANALYSE-CLAUDE.md point C: when `comparable` is False, the token
+    pct-change compares a mostly-failed classic cell's median (computed
+    from aborted trials) against a mostly-succeeded Code Mode cell --
+    not a meaningful number, so it is flagged instead of printed."""
+    if not bool(comparable):
+        return "n/a¹"
+    return _signed_pct(value)
+
+
 def _codemode_effect_table(effect: pd.DataFrame) -> str:
     lines = [
         "| Model | Task | Classic success | Code Mode success | Diff (pp) | Input tok. change "
@@ -63,9 +82,16 @@ def _codemode_effect_table(effect: pd.DataFrame) -> str:
         lines.append(
             f"| {row.model_id} | {row.task_id} | {_pct(row.classic_success_rate)} "
             f"| {_pct(row.codemode_success_rate)} | {row.success_rate_diff_pp:+.0f} "
-            f"| {_signed_pct(row.prompt_tokens_pct_change)} "
-            f"| {_signed_pct(row.completion_tokens_pct_change)} |"
+            f"| {_token_change_cell(row.prompt_tokens_pct_change, row.tokens_comparable)} "
+            f"| {_token_change_cell(row.completion_tokens_pct_change, row.tokens_comparable)} |"
         )
+    lines.append(
+        "\n¹ *n/a: classic mode's success rate on this (model, task) is 0%, so its median "
+        "tokens come from trials that mostly failed early (e.g. one request before a "
+        "`context_overflow`), not from completing the task -- comparing that against Code "
+        "Mode's (mostly completed) median would compare the cost of failing with the cost of "
+        "succeeding, not a token-efficiency effect (ANALYSE-CLAUDE.md point C).*"
+    )
     return "\n".join(lines)
 
 
@@ -105,6 +131,62 @@ def _models_setup_table(models_cfg: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _h1_evidence_text(effect: pd.DataFrame) -> str:
+    """H1 evidence, restricted to (model, task) pairs where both modes
+    actually complete the task often enough for a token comparison to
+    mean anything (ANALYSE-CLAUDE.md points C and F: the old "-59% to
+    -56% on average" phrasing mixed non-comparable pairs into one vague
+    range; this reports each task's comparable pair(s) by name)."""
+    comparable = effect[effect["tokens_comparable"].astype(bool)]
+    parts = []
+    for task_id in ("T3", "T5"):
+        rows = comparable[comparable["task_id"] == task_id]
+        if rows.empty:
+            parts.append(f"{task_id}: no (model, task) pair had both modes succeeding often "
+                         "enough to compare tokens")
+            continue
+        bits = ", ".join(
+            f"{r.model_id} {_signed_pct(r.prompt_tokens_pct_change)}" for r in rows.itertuples()
+        )
+        parts.append(f"{task_id}: {bits}")
+    return "; ".join(parts)
+
+
+def _bloat_range_text(bloat: pd.DataFrame, mode: str) -> str:
+    """ANALYSE-CLAUDE.md point D: tool bloat (12->60 tools) grows input
+    tokens in *both* modes, not just classic -- Code Mode's tools.py
+    stub lists every tool too, so it pays the same listing cost. Returns
+    e.g. "+55% to +114%" across the (model, task) pairs for one mode."""
+    changes = bloat[bloat["mode"] == mode]["prompt_tokens_pct_change"].dropna()
+    if changes.empty:
+        return "n/a"
+    lo, hi = changes.min(), changes.max()
+    if lo == hi:
+        return _signed_pct(lo)
+    return f"{_signed_pct(lo)} to {_signed_pct(hi)}"
+
+
+def _t4p_section(trials: pd.DataFrame) -> str:
+    """§4.5: the paginated-invoices complementary probe (DEVIATIONS.md,
+    ANALYSE-CLAUDE.md point A). Built directly from `trials` (not a
+    precomputed CSV) since this probe is intentionally outside the main
+    6-task grid every other aggregate is built from."""
+    t4p = trials[trials["task_id"] == PAGINATED_PROBE_TASK]
+    if t4p.empty:
+        return "*Not run.*"
+    lines = [
+        "| Model | Mode | n | Successes | Failure types |",
+        "|---|---|---|---|---|",
+    ]
+    for (model_id, mode), group in t4p.groupby(["model_id", "mode"], sort=True):
+        n = len(group)
+        successes = int(group["success"].sum())
+        failure_counts = group[~group["success"]]["failure_type"].value_counts()
+        failure_text = ", ".join(f"{ft} x{c}" for ft, c in failure_counts.items())
+        lines.append(f"| {model_id} | {mode} | {n} | {successes} | {failure_text} |")
+    return "\n".join(lines)
+
+
 def _h5_text(effect: pd.DataFrame) -> str:
     """H5: does the Code Mode effect vary by model? Compare mean success
     diff across tasks, per model."""
@@ -127,8 +209,12 @@ def render_report(
     trials = pd.read_csv(summary_dir / "trials.csv")
     effect = pd.read_csv(summary_dir / "codemode_effect.csv")
     bloat = pd.read_csv(summary_dir / "tool_bloat_effect.csv")
-    failures = pd.read_csv(summary_dir / "failure_breakdown.csv")
-    context_overflow = pd.read_csv(summary_dir / "context_overflow_by_model.csv")
+    # failure_breakdown.csv / context_overflow_by_model.csv on disk cover
+    # every trial (including the T4p probe, for transparency); the
+    # report's narrative below instead recomputes both, scoped to the
+    # core 6-task design (see core_trials below), since T4p is reported
+    # separately in §4.5 and must not be folded into H7's "all on T4"
+    # claim or the main failure-type counts.
 
     models_cfg = cast("dict[str, Any]", yaml.safe_load(models_config.read_text(encoding="utf-8")))
     tasks_cfg = cast("dict[str, Any]", yaml.safe_load(tasks_config.read_text(encoding="utf-8")))
@@ -156,13 +242,32 @@ def render_report(
         _pct(t1_t2_min) if t1_t2_min == t1_t2_max else f"{_pct(t1_t2_min)}-{_pct(t1_t2_max)}"
     )
 
+    # The paginated probe (T4p) is reported on its own in §4.5, never
+    # folded into the main 6-task narrative or its H7/failure counts.
+    core_trials = trials[trials["task_id"] != PAGINATED_PROBE_TASK]
+    context_overflow = context_overflow_by_model(core_trials)
+    failures = failure_breakdown(core_trials)
+
     context_overflow_classic_only = bool(
         (context_overflow["mode"] == "codemode").sum() == 0
         and (context_overflow["mode"] == "classic").sum() > 0
     )
+    overflow_task_ids = sorted(
+        core_trials[core_trials["failure_type"] == "context_overflow"]["task_id"].unique()
+    )
+    overflow_task_text = (
+        overflow_task_ids[0] if len(overflow_task_ids) == 1 else " and ".join(overflow_task_ids)
+    )
+
+    t4p_trials = trials[trials["task_id"] == PAGINATED_PROBE_TASK]
+    t4p_n = len(t4p_trials)
+    t4p_successes = int(t4p_trials["success"].sum()) if t4p_n else 0
+    t4p_score_text = f"{t4p_successes}/{t4p_n}" if t4p_n else "not run"
 
     task_lines = "\n".join(
-        f"- **{t['id']} ({t['title']})**: {t['statement'].strip()}" for t in tasks_cfg["tasks"]
+        f"- **{t['id']} ({t['title']})**: {t['statement'].strip()}"
+        for t in tasks_cfg["tasks"]
+        if t["id"] != PAGINATED_PROBE_TASK
     )
 
     report = f"""\
@@ -178,18 +283,31 @@ def render_report(
 - Both models solved T1/T2 ("simple" tasks) in classic mode at {t1_t2_summary}
   success, confirming the harness and grader are sound (CLAUDE.md §4 step-10 sanity check) before
   trusting the harder-task results below.
-- **H7 confirmed**: every `context_overflow` failure ({int(context_overflow["count"].sum())} total)
-  happened in classic mode{"; none in Code Mode" if context_overflow_classic_only else ""}. On this
-  24 GB GPU, context length is the binding constraint classic MCP runs into on T4, and Code Mode
-  sidesteps it by keeping bulk data out of the model's context.
-- **H1 confirmed on data-heavy tasks**: Code Mode cuts median input tokens by double digits on
-  T3/T5 for both models (see §4.1), at the cost of more output tokens (H3, confirmed: Code Mode
-  writes code, which costs completion tokens).
-- **H6 confirmed**: going from 12 to 60 tool definitions grows classic mode's median input tokens
-  by roughly 55-114% on T3/T5 (see §4.3) -- tool bloat is a real, measurable tax on classic MCP.
+- **H7 confirmed**: every `context_overflow` failure in the core 6-task design
+  ({int(context_overflow["count"].sum())} total) happened in classic mode{"; none in Code Mode" if context_overflow_classic_only else ""},
+  all on {overflow_task_text}. On this 24 GB GPU, context length is the binding constraint
+  classic MCP runs into, and Code Mode sidesteps it by keeping bulk data out of the model's
+  context.
+- **T4 specifically fails 0/20 in classic mode for a tool-design reason, and a follow-up probe
+  shows that isn't the whole story**: the only `list_invoices` tool classic mode had access to
+  returns every matching invoice in one unbounded call. A follow-up run with a properly paginated
+  version of that same tool (`T4p`, §4.5) still scored {t4p_score_text}: classic mode's
+  turn-by-turn, full-history-resend design keeps re-accumulating tool output across the several
+  pages this task needs, so pagination alone does not rescue it here.
+- **H1 confirmed, but only where the comparison is meaningful**: on the (model, task) pairs where
+  classic mode actually completes the task often enough to compare ({_h1_evidence_text(effect)}),
+  Code Mode cuts median input tokens substantially (see §4.2) -- at the cost of more output tokens
+  on simple tasks (H3), though output tokens actually *drop* on T3/T5 (see H3, §6).
+- **H6 confirmed, in both modes**: going from 12 to 60 tool definitions grows median input tokens
+  on T3/T5 by {_bloat_range_text(bloat, "classic")} in classic mode and
+  {_bloat_range_text(bloat, "codemode")} in Code Mode (see §4.3) -- tool bloat is a real,
+  measurable tax on both ways of calling tools here, since this harness's Code Mode shows the
+  model every tool in `tools.py` rather than a searchable subset.
 - **H5 confirmed, nuanced**: the two models gain very differently from Code Mode -- gpt-oss-20b
   goes from 0% to 80-100% success on T3-T5 classic, while qwen3.5-9b already handles most of these
   tasks in classic mode and gains mainly in token efficiency, not success rate (see §4.4 and §6).
+  Part of gpt-oss-20b's classic-mode rescue reflects a vLLM Harmony-parser bug this model hits
+  more often in classic mode (§5); qwen3.5-9b is the cleaner evidence for the general effect.
 - Only 2 of the 4 models planned in `PLAN.md` actually ran; two were dropped for hard dependency
   conflicts on this VM's CUDA 12.8 driver, documented in full in §8 (Deviations from plan).
 
@@ -217,6 +335,9 @@ aggregation:
 
 {task_lines}
 
+A seventh, `T4p`, reruns T4's exact statement against a differently-served tool and is reported
+separately in §4.5, not among these six.
+
 ### 3.2 Modes
 
 - **Classic**: the standard MCP tool-calling loop -- the model receives tool schemas, calls a
@@ -233,10 +354,11 @@ aggregation:
 ### 3.3 Repetitions and statistics
 
 10 repetitions per (model, mode, task) in the main 12-tool series, 5 repetitions per (model,
-mode, task) in the 60-tool variant (T3/T5 only) -- 140 trials per model, 280 total. Success
-rates are reported with 95% Wilson confidence intervals (appropriate for small n and rates near
-0/1); token and latency figures use the median, which is robust to the occasional very slow or
-very token-heavy retry.
+mode, task) in the 60-tool variant (T3/T5 only) -- 140 trials per model, 280 total for this core
+6-task design, plus a 10-trials-per-model complementary probe (`T4p`, classic mode only, §4.5)
+added afterward, for {total_trials} trials overall. Success rates are reported with 95% Wilson
+confidence intervals (appropriate for small n and rates near 0/1); token and latency figures use
+the median, which is robust to the occasional very slow or very token-heavy retry.
 
 **Important methodological note on "input tokens":** in classic mode, each turn resends the
 whole growing conversation to the model, so the `prompt_tokens` figure reported per trial is the
@@ -273,6 +395,14 @@ the final database state and the `outbox` table are checked, not just the text r
 
 ![Effect of tool count](figures/05_tool_count_effect.png)
 
+Tool-definition bloat is not a classic-mode-only cost here: Code Mode's input tokens grow by
+{_bloat_range_text(bloat, "codemode")} too, almost as much as classic mode's
+{_bloat_range_text(bloat, "classic")} (ANALYSE-CLAUDE.md point D), because this implementation's
+generated `tools.py` lists every available tool with its full docstring every time, exactly like
+the tool schemas classic mode is shown. A tool-search/discovery mechanism (e.g. a `search()` call
+the model uses before importing specific tools) would be needed to make Code Mode immune to this
+cost -- not implemented here.
+
 ### 4.4 Cross-model comparison (H5)
 
 {_h5_text(effect)}.
@@ -291,11 +421,38 @@ more about this task's write-heavy, data-dump-heavy shape (see §6, H7).
 |---|---|---|
 {chr(10).join(f"| {r.model_id} | {r.mode} | {r.count} |" for r in context_overflow.itertuples())}
 
-Every `context_overflow` failure happened in classic mode, on T4 in all cases (the single
-`list_invoices(status=...)` call needed for that task returns ~900 rows / ~108K characters on
-its own for some customers, pushing the single request past `max_model_len=32768`). Code Mode
-never hit this failure: the same raw data is filtered inside the sandbox and only the small
-final result returns to the model's context.
+Every `context_overflow` failure in the core 6-task design happened in classic mode, on
+{overflow_task_text} in all cases. T4's `list_invoices` tool takes no per-customer filter for
+this task's `status='overdue'` query, so a single call returns *every* overdue invoice across
+*all* ~500 customers at once (~900 rows / ~108K characters), pushing that one request past
+`max_model_len=32768` before the model gets anywhere near reasoning about per-customer counts.
+Code Mode never hit this failure: the same raw data is filtered inside the sandbox and only the
+small final result returns to the model's context.
+
+### 4.5 Complementary probe: T4 classic with a paginated invoices tool
+
+T4's 0% classic-mode success rate above could, in principle, measure this harness's tool design
+rather than the models' reasoning (ANALYSE-CLAUDE.md point A): the single unbounded
+`list_invoices` call T4 depends on is, by construction, too large for a classic-mode request. To
+test that directly, `T4p` reruns the exact same task against a paginated `list_invoices` variant
+that caps `limit` at 200 and reports `total_count`/`has_more` -- a model that loops over `offset`
+can retrieve every overdue invoice without any single call overflowing. Classic mode only (Code
+Mode already succeeds on T4 with the original tool); 10 trials per model:
+
+{_t4p_section(trials)}
+
+**Result: still {t4p_successes}/{t4p_n} success**, for a different reason than T4's single-call
+overflow. Covering every one of the ~500 customers' overdue invoices takes ~5 pages at 200 rows
+each, plus the per-customer `update_customer_note`/`send_email` write calls; classic mode resends
+the whole growing conversation on every turn (§3.3), so by the time it has paged through enough
+invoices to answer, the *accumulated* conversation itself exceeds the 32,768-token window in most
+trials (`context_overflow`) -- or the model gives up partway through paging and answers with an
+incomplete customer list, sometimes without ever calling the write tools at all (`wrong_answer`;
+confirmed by manual trace review, e.g. `gpt-oss-20b__classic__T4p__tools12__rep9`: only 2 tool
+calls total, `FINAL_ANSWER` listing 19 of the 212 expected customers, no write tool called for
+any of them). A well-designed paginated tool removes the *single-oversized-call* failure mode,
+but does not by itself make this task solvable in classic mode under this GPU's context budget
+and this harness's full-history-resend design -- see `DEVIATIONS.md` for the full writeup.
 
 ## 5. Failure analysis
 
@@ -305,8 +462,8 @@ Representative examples from the raw traces (`results/raw/traces/`):
 
 1. **`gpt-oss-20b__classic__T4__tools12__rep0` (context_overflow)**: `Error code: 400 - Input
    length (45925) exceeds model's maximum context length (32768).` -- the expected failure mode
-   described above; the single-call result from `list_invoices` for a customer with many invoices
-   alone exceeds the window.
+   described above; `list_invoices(status='overdue')` has no customer filter, so this one call
+   already returns every overdue invoice across all customers combined, not just one customer's.
 2. **`qwen3.5-9b__classic__T4__tools12__rep5` (context_overflow)**: `Error code: 400 - This
    model's maximum context length is 32768 tokens. However, you requested 0 output tokens and
    your prompt contains at least 32769` -- same failure mode, confirming it is task-shape-driven
@@ -328,18 +485,23 @@ Representative examples from the raw traces (`results/raw/traces/`):
    limit` -- classic mode's many sequential tool-call round-trips on a large-volume task (T5)
    occasionally outruns even the generous 900s budget; Code Mode's single-script execution never
    hit this limit.
+6. **`gpt-oss-20b__classic__T4p__tools12__rep9` (wrong_answer, §4.5 probe)**: even with a
+   paginated `list_invoices`, the model made only 2 tool calls total before answering with
+   `FINAL_ANSWER` listing 19 of the 212 customers actually expected, and never called
+   `update_customer_note`/`send_email` for any of them -- it stopped paging (and writing) well
+   short of covering the task, not because any single call overflowed.
 
 ## 6. Hypotheses H1-H7
 
 | # | Hypothesis | Verdict | Evidence |
 |---|---|---|---|
-| H1 | Code Mode strongly cuts input tokens on chained/data-heavy tasks | **Confirmed** | T3/T5 input tokens drop {_signed_pct(effect[effect.task_id=="T3"]["prompt_tokens_pct_change"].mean())} to {_signed_pct(effect[effect.task_id=="T5"]["prompt_tokens_pct_change"].mean())} on average (§4.2) |
+| H1 | Code Mode strongly cuts input tokens on chained/data-heavy tasks | **Confirmed, on the pairs where the comparison is meaningful** | {_h1_evidence_text(effect)} (§4.2; gpt-oss-20b's T3/T5 classic cells are excluded as not comparable -- its 0% classic success rate there means its "tokens" are from aborted trials, point C) |
 | H2 | On a single-call task, Code Mode gives nothing (or costs more) | **Confirmed** | T1: 0pp success difference for both models; token changes are small and mixed in sign (§4.2) |
-| H3 | Code Mode increases output tokens (the model writes code) | **Confirmed, with exceptions on T3/T5** | T1/T4/T6 show positive completion-token changes; T3/T5 actually *drop* because Code Mode's output is a short script instead of restating large tool results (§4.2) |
+| H3 | Code Mode increases output tokens (the model writes code) | **Confirmed on simple tasks; disconfirmed on data-heavy tasks** | T1/T4/T6 show positive completion-token changes, as expected; T3/T5 actually *drop* sharply instead, because Code Mode's output is a short script instead of restating large tool results in prose -- a genuine secondary finding, not an exception to wave away (§4.2) |
 | H4 | Classic MCP stays better on open-ended/textual tasks | **Not confirmed as stated; no difference found** | T6 (free-form): 100% success, near-identical tokens in both modes for both models -- no classic-mode advantage observed on this task shape (§4.1) |
-| H5 | Code Mode's effect depends on the model | **Confirmed** | gpt-oss-20b: large success-rate rescue; qwen3.5-9b: mostly a token-efficiency gain, not a rescue (§4.4) |
-| H6 | More tools => classic MCP pays more in tokens | **Confirmed** | 12->60 tools grows classic median input tokens by 55-114% on T3/T5 (§4.3) |
-| H7 | On a small GPU, Code Mode finishes tasks classic mode cannot, for context reasons | **Confirmed** | All {int(context_overflow["count"].sum())} `context_overflow` failures are classic-mode, all on T4; 0 in Code Mode (§4.3/§5) |
+| H5 | Code Mode's effect depends on the model | **Confirmed** | gpt-oss-20b: large success-rate rescue (partly reflecting a vLLM parser bug it hits more in classic mode, §5); qwen3.5-9b: mostly a token-efficiency gain, not a rescue, and the cleaner evidence for this hypothesis (§4.4) |
+| H6 | More tools => classic MCP pays more in tokens | **Confirmed in both modes** | 12->60 tools grows median input tokens by {_bloat_range_text(bloat, "classic")} in classic mode and {_bloat_range_text(bloat, "codemode")} in Code Mode on T3/T5 (§4.3) -- this implementation's Code Mode shows every tool too, so it is not immune |
+| H7 | On a small GPU, Code Mode finishes tasks classic mode cannot, for context reasons | **Confirmed for the single-oversized-call failure mode; a paginated tool alone does not fully fix classic mode** | All {int(context_overflow["count"].sum())} core-series `context_overflow` failures are classic-mode, all on {overflow_task_text}; 0 in Code Mode (§4.3/§5). A follow-up with a paginated tool (T4p, §4.5) still scored {t4p_score_text} in classic mode, for a different (accumulated-context) reason |
 
 ## 7. Limitations and threats to validity
 
