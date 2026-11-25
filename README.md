@@ -6,6 +6,7 @@
 ![Python >= 3.11](https://img.shields.io/badge/python-%3E%3D3.11-blue.svg)
 ![Tests: 113 passing](https://img.shields.io/badge/tests-113%20passing-brightgreen.svg)
 ![Ruff + mypy clean](https://img.shields.io/badge/lint-ruff%20%2B%20mypy-brightgreen.svg)
+[![DOI](https://img.shields.io/badge/DOI-10.34740%2Fkaggle%2Fdsv%2F22811046-blue)](https://doi.org/10.34740/kaggle/dsv/22811046)
 
 ## TL;DR
 
@@ -26,9 +27,8 @@ or is it just a token-efficiency trick that doesn't matter in practice?
    success on the hardest tasks with Code Mode; another (qwen3.5-9b) already handled them in
    classic mode and mainly gained token efficiency, not a success-rate rescue.
 
-Full results, methodology, and the blog article once published: [`REPORT.md`](REPORT.md) *(blog
-link to come once the article is live on
-[samiraitabbou.hashnode.dev](https://samiraitabbou.hashnode.dev))*. This is part 2 of a series;
+Full results and methodology: [`REPORT.md`](REPORT.md). The write-up for this article will be
+posted on [samiraitabbou.hashnode.dev](https://samiraitabbou.hashnode.dev). This is part 2 of a series;
 part 1 -- [MCP vs Code Mode: What Actually Changes, What the Numbers Say, and When to Use
 Which](https://samiraitabbou.hashnode.dev/mcp-vs-code-mode) -- is already published.
 
@@ -81,6 +81,12 @@ uv run cmbench report                           # regenerate CSVs, figures, REPO
 Full table (all 6 tasks x 2 modes x 2 models x 2 tool-count variants) and all 7 hypotheses
 (H1-H7) with evidence: [`REPORT.md`](REPORT.md) §4 and §6.
 
+Per-trial data (300 trials) and an analysis notebook are also published on Kaggle:
+[Code Mode vs Classic MCP: 300 Agent Trials](https://www.kaggle.com/datasets/samiraitabbou/code-mode-vs-classic-mcp-300-agent-trials)
+(dataset) and
+[Code Mode vs Classic MCP: 300 Agent Trials Analyze](https://www.kaggle.com/code/samiraitabbou/code-mode-vs-classic-mcp-300-agent-trials-analyze)
+(analysis notebook).
+
 ![Success rate per task and condition](results/figures/03_success_rate_by_task.png)
 
 *Figure 4 (REPORT.md). Success rate per task and condition (n = 10 per bar; T4p = paginated variant, classic only). Error bars: 95% Wilson intervals.*
@@ -126,12 +132,27 @@ Full discussion: [`REPORT.md`](REPORT.md) §7.
 
 ## Citation
 
+To cite the code:
+
 ```bibtex
 @misc{aitabbou2026codemodebench,
   author = {Ait-Abbou, Samir},
   title  = {code-mode-bench: Code Mode vs classic MCP tool-calling, measured on local LLMs},
   year   = {2026},
   url    = {https://github.com/samir-aitabbou/code-mode-bench}
+}
+```
+
+To cite the per-trial dataset published on Kaggle:
+
+```bibtex
+@misc{aitabbou2026codemodebenchdata,
+  author    = {Samir Ait-Abbou},
+  title     = {Code Mode vs Classic MCP: 300 Agent Trials},
+  year      = {2026},
+  publisher = {Kaggle},
+  doi       = {10.34740/kaggle/dsv/22811046},
+  url       = {https://doi.org/10.34740/kaggle/dsv/22811046}
 }
 ```
 
