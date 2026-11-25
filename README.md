@@ -13,7 +13,7 @@
 calling MCP tools one at a time) actually help, on real local models, on a real 24 GB GPU --
 or is it just a token-efficiency trick that doesn't matter in practice?
 
-**Three results, from 300 real trials on 2 models:**
+**Three results, from 300 real trials on 2 models (280 main trials + 20 for a follow-up probe):**
 
 1. **It's not just about tokens -- it's about finishing the task at all.** On data-heavy tasks
    (large volumes, chained aggregation, loops with writes), classic MCP tool-calling hit the
@@ -59,9 +59,10 @@ bash scripts/stop_vllm.sh
 ## Reproduce the full benchmark
 
 Requires a GPU with ~22+ GB free VRAM and a CUDA 12.8+-capable driver (see
-[`docs/REPRODUCE.md`](docs/REPRODUCE.md) for the full requirements and setup). The full
-280-trial series (2 models x 140 trials each, including the 60-tool variant) took ~4.9
-GPU-hours of compute on a single L40S-24Q vGPU:
+[`docs/REPRODUCE.md`](docs/REPRODUCE.md) for the full requirements and setup). The full series is
+280 main trials (2 models x 140 trials each, including the 60-tool variant) plus 20 trials for the
+`T4p` paginated-tool probe (§4.5 of `REPORT.md`) -- 300 total -- and took ~4.9 GPU-hours of
+compute on a single L40S-24Q vGPU:
 
 ```bash
 tmux new -s cmbench 'bash scripts/run_all.sh'   # unattended, resumable, survives SSH drops
