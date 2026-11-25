@@ -112,8 +112,19 @@ uv run cmbench report                           # regenerate CSVs, figures, REPO
 Full table (all 6 tasks x 2 modes x 2 models x 2 tool-count variants) and all 7 hypotheses
 (H1-H7) with evidence: [`REPORT.md`](REPORT.md) §4 and §6.
 
-![Success rate by task](results/figures/03_success_rate_by_task.png)
-![Effect of tool count](results/figures/05_tool_count_effect.png)
+![Success rate per task and condition](results/figures/paper/fig2-success.png)
+
+*Success rate per task and condition (n = 10 per bar; T4p = paginated variant, classic only). Error bars: 95% Wilson intervals.*
+
+![Tokens and wall-clock time per trial](results/figures/paper/fig3-efficiency.png)
+
+*Total tokens and wall-clock time per trial, medians with interquartile ranges. Hatched bars: cells where fewer than half of the trials succeeded (not comparable).*
+
+![Request size on T4 and T4p versus the context limit](results/figures/paper/fig4-context.png)
+
+*Request size on the invoice task (T4) and its paginated variant (T4p), against the 32,768-token context limit.*
+
+All publication-style figures are in [`results/figures/paper/`](results/figures/paper/) and are regenerated with `uv run python scripts/paper_figures.py`.
 
 ## Methodology, in brief
 
