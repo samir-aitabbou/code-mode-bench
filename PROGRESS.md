@@ -726,6 +726,11 @@ Suite à une relecture avant mise en public du dépôt :
   permissions de Claude Code -- changement cosmétique sans impact, laissé tel quel sauf si Samir
   le souhaite). Lien vers l'article 1 (déjà publié) ajouté dans le TL;DR. Nombre d'essais corrigé
   (280 -> 300, oubli lors de l'ajout de `T4p`).
+- **Confirmation du renommage (2026-11-25, suite)** : Samir confirme avoir lui-même renommé le
+  dépôt GitHub en `code-mode-bench` (sans trait d'union). Dernière occurrence de
+  `code-mode-bench-` dans le dépôt (hors cette note historique) vérifiée absente ; remote local
+  `github` mis à jour vers la nouvelle URL (`git remote set-url`, demandé explicitement cette
+  fois) ; tag `v1.1.0` déplacé sur ce commit ; poussé sur `github` et `vm`.
 
 ## Commandes utiles
 
