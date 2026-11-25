@@ -27,8 +27,9 @@ or is it just a token-efficiency trick that doesn't matter in practice?
    success on the hardest tasks with Code Mode; another (qwen3.5-9b) already handled them in
    classic mode and mainly gained token efficiency, not a success-rate rescue.
 
-Full results and methodology: [`REPORT.md`](REPORT.md). The write-up for this article will be
-posted on [samiraitabbou.hashnode.dev](https://samiraitabbou.hashnode.dev). This is part 2 of a series;
+Full results and methodology: [`REPORT.md`](REPORT.md). Full write-up:
+[I Benchmarked Code Mode vs Classic MCP on a Single 24 GB GPU](https://samiraitabbou.hashnode.dev/i-benchmarked-code-mode-vs-classic-mcp-on-a-single-24-gb-gpu).
+This is part 2 of a series;
 part 1 -- [MCP vs Code Mode: What Actually Changes, What the Numbers Say, and When to Use
 Which](https://samiraitabbou.hashnode.dev/mcp-vs-code-mode) -- is already published.
 
