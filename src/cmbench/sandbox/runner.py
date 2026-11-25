@@ -3,7 +3,7 @@ code, and services its tool-call requests over the bridge protocol
 (`cmbench.sandbox.bridge`) by calling `execute_tool`.
 
 Isolation on Linux, tried in order (PLAN.md §3.3): (1) `unshare -rn` for
-a no-network namespace -- on redacted-gpu-vm this fails
+a no-network namespace -- on the benchmark VM this fails
 ("write failed /proc/self/uid_map: Operation not permitted", i.e.
 unprivileged user namespaces are disabled); (2) `docker run --network
 none` (the user is in the `docker` group, confirmed working); (3) if

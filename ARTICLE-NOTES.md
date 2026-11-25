@@ -104,11 +104,23 @@ premier sur ce matériel.
   spécifique à ce budget VRAM ; un GPU avec plus de mémoire (donc un `max_model_len` plus grand)
   repousserait ce mur, pas ne l'éliminerait pas forcément pour autant sur de plus gros volumes.
 
-## Figures disponibles (results/figures/, 1600px, style du blog)
+## Figures disponibles (results/figures/, style publication scientifique)
+
+Depuis le 25/11, toutes les figures (`results/figures/`, un seul jeu cohérent) sont générées par
+`src/cmbench/report/plots.py` : police serif STIX, palette Okabe-Ito (classic = gris `#9a9a9a`,
+Code Mode = bleu `#0072B2`), IC 95% de Wilson sur les taux de réussite, médiane + IQR sur
+tokens/latence/temps GPU, et des barres hachurées pour signaler une cellule à moins de 50% de
+réussite (chiffre non comparable, point C). `T4p` apparaît désormais sur la figure 3.
 
 1. `01_input_tokens_by_task.png` — tokens d'entrée par tâche, classic vs codemode, par modèle.
 2. `02_gpu_time_per_trial.png` — temps GPU médian par essai.
-3. `03_success_rate_by_task.png` — taux de réussite avec IC 95% (la plus parlante pour H7/H5).
+3. `03_success_rate_by_task.png` — taux de réussite avec IC 95% (la plus parlante pour H7/H5),
+   `T4p` inclus en 7e catégorie (classique uniquement).
 4. `04_latency_by_task.png` — latence médiane par essai.
 5. `05_tool_count_effect.png` — effet du nombre d'outils (12 vs 60), pour H6.
 6. `06_failure_breakdown.png` — répartition des types d'échec par modèle/mode.
+7. `07_setup_diagram.png` — schéma d'architecture du harness (bonus, pas dans la liste CLAUDE.md §6).
+8. `08_context_limit.png` — taille des requêtes sur T4/T4p face à la limite de contexte (bonus).
+
+Régénération : `uv run cmbench report` (1-6) puis `uv run python scripts/paper_figures.py` (1-8,
+le script appelle les mêmes fonctions de `plots.py`, aucune duplication de code).

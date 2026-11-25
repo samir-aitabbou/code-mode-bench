@@ -102,7 +102,7 @@ unconditional on and invisible to every other task/trial.
 
 ## Shared VM: default vLLM port moved from 8000 to 8010
 
-Discovered 2026-11-23/24: port 8000 on `redacted-gpu-vm` can be held by another user's own
+Discovered 2026-11-23/24: port 8000 on the benchmark VM can be held by another user's own
 application, unrelated to this benchmark's GPU/VRAM usage. We have no permission to free
 another user's process (no sudo without Samir's explicit sign-off each time, per CLAUDE.md
 §0.2), so the benchmark's own default port was moved to 8010 instead (confirmed free,

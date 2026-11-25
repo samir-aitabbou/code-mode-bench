@@ -40,6 +40,12 @@
 
 ## 2. Setup
 
+![Harness architecture](figures/07_setup_diagram.png)
+
+*Figure 1. Harness architecture: an identical task prompt and grader feed both modes; classic
+mode exchanges full tool schemas and results with the model every turn, Code Mode exposes a
+single `execute_python` tool backed by a sandboxed script and a bridge to the MCP server.*
+
 - **GPU**: 1x NVIDIA L40S-24Q vGPU profile (~21.7 GB usable VRAM), driver 570.124.06, CUDA 12.8.
 - **Serving stack**: vLLM 0.19.0 (the newest version this GPU's driver can run -- see
   `configs/models.yaml` for the full version-selection trail), OpenAI-compatible HTTP API,
@@ -160,9 +166,23 @@ the final database state and the `outbox` table are checked, not just the text r
 ¹ *n/a: classic mode's success rate on this (model, task) is 0%, so its median tokens come from trials that mostly failed early (e.g. one request before a `context_overflow`), not from completing the task -- comparing that against Code Mode's (mostly completed) median would compare the cost of failing with the cost of succeeding, not a token-efficiency effect (ANALYSE-CLAUDE.md point C).*
 
 ![Input tokens by task](figures/01_input_tokens_by_task.png)
+
+*Figure 2. Median input tokens per trial, classic vs Code Mode, with interquartile-range error
+bars. Hatched bars mark a cell whose success rate is below 50%: its median is computed mostly
+from aborted trials, not completed ones, and is not comparable to the other mode (point C).*
+
 ![GPU time per trial](figures/02_gpu_time_per_trial.png)
+
+*Figure 3. Median GPU time per trial, same convention as Figure 2.*
+
 ![Success rate by task](figures/03_success_rate_by_task.png)
+
+*Figure 4. Success rate per task with 95% Wilson confidence intervals, classic vs Code Mode;
+`T4p` (classic-mode only, §4.5) is appended after the dotted separator.*
+
 ![Latency by task](figures/04_latency_by_task.png)
+
+*Figure 5. Median end-to-end latency per trial, same convention as Figure 2.*
 
 ### 4.3 Tool-count variant (12 vs 60 tools, T3/T5 only)
 
@@ -178,6 +198,9 @@ the final database state and the `outbox` table are checked, not just the text r
 | qwen3.5-9b | codemode | T5 | 27,443 | 50,782 | +85% | 100% | 100% |
 
 ![Effect of tool count](figures/05_tool_count_effect.png)
+
+*Figure 6. Median input tokens on T3/T5 with 12 vs 60 tool definitions in context (lighter shade
+= 12 tools), classic and Code Mode side by side.*
 
 Tool-definition bloat is not a classic-mode-only cost here: Code Mode's input tokens grow by
 -6% to +97% too, almost as much as classic mode's
@@ -229,6 +252,12 @@ Mode already succeeds on T4 with the original tool); 10 trials per model:
 | gpt-oss-20b | classic | 10 | 0 | wrong_answer x5, context_overflow x5 |
 | qwen3.5-9b | classic | 10 | 0 | context_overflow x10 |
 
+![Context-limit scatter](figures/08_context_limit.png)
+
+*Figure 7. Per-request token count on T4/T4p against the 32,768-token context limit (dashed
+line): classic mode's rejected requests (both the unpaginated and the paginated tool) cluster at
+or above the limit, while Code Mode's requests stay far below it.*
+
 **Result: still 0/20 success**, for a different reason than T4's single-call
 overflow. Covering every one of the ~500 customers' overdue invoices takes ~5 pages at 200 rows
 each, plus the per-customer `update_customer_note`/`send_email` write calls; classic mode resends
@@ -254,6 +283,11 @@ and this harness's full-history-resend design -- see `DEVIATIONS.md` for the ful
 | gpt-oss-20b | classic | timeout | 2 |
 | gpt-oss-20b | codemode | wrong_answer | 2 |
 | qwen3.5-9b | classic | context_overflow | 10 |
+
+![Failure-type breakdown](figures/06_failure_breakdown.png)
+
+*Figure 8. Count of failed trials by failure type, classic vs Code Mode, per model (core 6-task
+design; `T4p` is reported separately in §4.5).*
 
 Representative examples from the raw traces (`results/raw/traces/`):
 
@@ -424,7 +458,7 @@ unconditional on and invisible to every other task/trial.
 
 ### Shared VM: default vLLM port moved from 8000 to 8010
 
-Discovered 2026-11-23/24: port 8000 on `redacted-gpu-vm` can be held by another user's own
+Discovered 2026-11-23/24: port 8000 on the benchmark VM can be held by another user's own
 application, unrelated to this benchmark's GPU/VRAM usage. We have no permission to free
 another user's process (no sudo without Samir's explicit sign-off each time, per CLAUDE.md
 §0.2), so the benchmark's own default port was moved to 8010 instead (confirmed free,

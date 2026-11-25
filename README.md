@@ -4,7 +4,7 @@
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python >= 3.11](https://img.shields.io/badge/python-%3E%3D3.11-blue.svg)
-![Tests: 98 passing](https://img.shields.io/badge/tests-98%20passing-brightgreen.svg)
+![Tests: 113 passing](https://img.shields.io/badge/tests-113%20passing-brightgreen.svg)
 ![Ruff + mypy clean](https://img.shields.io/badge/lint-ruff%20%2B%20mypy-brightgreen.svg)
 
 ## TL;DR
@@ -112,19 +112,15 @@ uv run cmbench report                           # regenerate CSVs, figures, REPO
 Full table (all 6 tasks x 2 modes x 2 models x 2 tool-count variants) and all 7 hypotheses
 (H1-H7) with evidence: [`REPORT.md`](REPORT.md) §4 and §6.
 
-![Success rate per task and condition](results/figures/paper/fig2-success.png)
+![Success rate per task and condition](results/figures/03_success_rate_by_task.png)
 
-*Success rate per task and condition (n = 10 per bar; T4p = paginated variant, classic only). Error bars: 95% Wilson intervals.*
+*Figure 4 (REPORT.md). Success rate per task and condition (n = 10 per bar; T4p = paginated variant, classic only). Error bars: 95% Wilson intervals.*
 
-![Tokens and wall-clock time per trial](results/figures/paper/fig3-efficiency.png)
+![Input tokens per trial](results/figures/01_input_tokens_by_task.png)
 
-*Total tokens and wall-clock time per trial, medians with interquartile ranges. Hatched bars: cells where fewer than half of the trials succeeded (not comparable).*
+*Figure 2 (REPORT.md). Median input tokens per trial, with interquartile ranges. Hatched bars: cells where fewer than half of the trials succeeded (not comparable).*
 
-![Request size on T4 and T4p versus the context limit](results/figures/paper/fig4-context.png)
-
-*Request size on the invoice task (T4) and its paginated variant (T4p), against the 32,768-token context limit.*
-
-All publication-style figures are in [`results/figures/paper/`](results/figures/paper/) and are regenerated with `uv run python scripts/paper_figures.py`.
+All figures are in [`results/figures/`](results/figures/) (`01_...png` through `08_...png`), regenerated together with `uv run cmbench report` (the 6 required by `CLAUDE.md` §6) and `uv run python scripts/paper_figures.py` (adds the architecture diagram and the T4/T4p context-limit scatter). Both read from `cmbench.report.plots`, so there is a single figure style across the repository.
 
 ## Methodology, in brief
 

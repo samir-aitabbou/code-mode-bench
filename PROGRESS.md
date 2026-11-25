@@ -5,9 +5,8 @@
 
 ## Fait
 
-- **Étape 1 (vérifications VM)** : connexion SSH `redacted-gpu-vm` (alias, résout vers REDACTED-IP,
-  `redacted-gpu-vm.example`) OK. IP corrigée dans `CLAUDE.md` et `../CONTEXTE.md` (était
-  `.199` par erreur). GPU L40S-24Q, 1 MiB utilisé / 21 766 MiB libres (VRAM libre confirmée).
+- **Étape 1 (vérifications VM)** : connexion SSH à la VM de calcul (alias configuré en local) OK.
+  IP corrigée dans `CLAUDE.md` et `../CONTEXTE.md` (était fausse par erreur). GPU L40S-24Q, 1 MiB utilisé / 21 766 MiB libres (VRAM libre confirmée).
   Driver 570.124.06, CUDA 12.8. 16 CPU, 62 Gi RAM. Docker 29.4.3 présent (3 conteneurs tiers
   tournent déjà — `candide_blue_poc2-app/-db`, `elkhabir-db` — ne pas y toucher). Internet OK.
   317G disponibles sur `/`. `~/venv-vllm` existant avec vLLM 0.17.1 (ne pas modifier).
@@ -104,7 +103,7 @@
 
 - **Dépôt poussé sur la VM** (pas de `rsync` sur le PC Windows → utilisé `git` à la place,
   autorisé par CLAUDE.md §1) : `git init -b master` + `receive.denyCurrentBranch=updateInstead`
-  dans `~/code-mode-bench` sur la VM, remote `vm` ajouté en local (`redacted-gpu-vm:code-mode-bench`),
+  dans `~/code-mode-bench` sur la VM, remote `vm` ajouté en local (alias VM + `:code-mode-bench`),
   `git push vm master`. `.venv-vllm` n'a pas été touché (gitignore `.venv-*/`). `uv` installé en
   user-space sur la VM via l'installeur officiel (`curl -LsSf https://astral.sh/uv/install.sh`,
   dans `~/.local/bin`, PATH non hérité en SSH non interactif → utiliser le chemin complet
@@ -428,7 +427,7 @@ Dépasse largement le plancher de CLAUDE.md §4 étape 10 (« au moins un modèl
 - **reprise validée** : relancé le même essai à blanc, les 8 essais déjà faits sont tous
   sautés (`skipping already-completed trial ...`), compteur inchangé, VRAM toujours libre.
 - **Incident en cours de route (hors scope du code du benchmark) : la VM est partagée.** Un
-  collègue (`a-colleague`) avait une session Claude Code active qui utilisait le port 8000
+  collègue avait une session Claude Code active qui utilisait le port 8000
   (son appli `andriax`) et la VRAM (`ollama`) en parallèle, faussant d'abord le diagnostic (un
   `vllm serve` à nous restait bloqué en "Application startup complete" sans jamais répondre —
   en fait un conflit de port, pas un bug). On ne peut pas tuer les process d'un autre
@@ -691,9 +690,10 @@ Suite à la relecture indépendante `ANALYSE-CLAUDE.md`, correction de `REPORT.m
 ## Commandes utiles
 
 ```bash
-ssh redacted-gpu-vm "nvidia-smi --query-gpu=memory.used,memory.free --format=csv"
-ssh redacted-gpu-vm "source ~/code-mode-bench/.venv-vllm/bin/activate && python3 -c 'import torch; print(torch.__version__, torch.cuda.is_available())'"
-ssh redacted-gpu-vm "tail -n 30 ~/code-mode-bench/results/run.log"
-ssh redacted-gpu-vm "cat ~/code-mode-bench/results/run_status.json"
-ssh redacted-gpu-vm "ls ~/code-mode-bench/results/DONE 2>&1"  # existe = la série (y compris T4p) est finie
+# remplacer your-gpu-vm par l'alias SSH configuré en local pour la VM de calcul
+ssh your-gpu-vm "nvidia-smi --query-gpu=memory.used,memory.free --format=csv"
+ssh your-gpu-vm "source ~/code-mode-bench/.venv-vllm/bin/activate && python3 -c 'import torch; print(torch.__version__, torch.cuda.is_available())'"
+ssh your-gpu-vm "tail -n 30 ~/code-mode-bench/results/run.log"
+ssh your-gpu-vm "cat ~/code-mode-bench/results/run_status.json"
+ssh your-gpu-vm "ls ~/code-mode-bench/results/DONE 2>&1"  # existe = la série (y compris T4p) est finie
 ```

@@ -81,7 +81,7 @@ context from the cost of the task itself (H6).
   $0.50/hour -- always presented as an estimate, not real cloud pricing).
 - `gpu_util_pct` / `gpu_mem_used_mib` / `gpu_mem_free_mib` /
   `gpu_compute_procs`: an `nvidia-smi` snapshot taken right after the
-  trial finishes. This exists because `redacted-gpu-vm` is a shared VM;
+  trial finishes. This exists because the benchmark VM is shared;
   `gpu_compute_procs > 1` flags a trial that ran alongside another user's
   GPU job, so a reader can tell our own load apart from external
   contention when reading the raw results. `None` when `nvidia-smi` isn't
