@@ -714,15 +714,18 @@ Suite à une relecture avant mise en public du dépôt :
   ancien commit ni message de commit. Une sauvegarde complète du dépôt a été faite avant
   l'opération. **Tous les hash de commit ont changé** (le tag `v1.0.0`, déjà poussé sur GitHub
   avec l'ancienne IP/l'ancien nom, a été conservé tel quel -- déjà exposé publiquement, le
-  réécrire ne retirerait rien -- un nouveau tag `v1.1.0` a été créé sur l'état final). Remotes
-  (`github`, `vm`) toujours configurés mais **plus synchronisés avec le nouvel historique** : un
-  `push --force` vers les deux est nécessaire (commandes données à Samir, pas exécuté par Claude
-  Code -- CLAUDE.md §0.2).
-- **README.md** : lien GitHub dans le bloc BibTeX corrigé vers le vrai nom du dépôt
-  (`code-mode-bench-`, avec le trait d'union -- `code-mode-bench` sans trait d'union, cité dans
-  `../CONTEXTE.md` et dans la demande initiale de Samir, n'existe pas sur GitHub ; vérifié via
-  l'API publique GitHub). Lien vers l'article 1 (déjà publié) ajouté dans le TL;DR. Nombre
-  d'essais corrigé (280 -> 300, oubli lors de l'ajout de `T4p`).
+  réécrire ne retirerait rien -- un nouveau tag `v1.1.0` a été créé sur l'état final). Poussé en
+  force sur `github` et `vm` (sur instruction explicite de Samir : « push toi meme »).
+- **README.md** : lien GitHub dans le bloc BibTeX corrigé. Au moment de la vérification, l'API
+  publique GitHub indiquait `code-mode-bench-` (avec un trait d'union) ; le `git push --force`
+  qui a suivi a révélé que le dépôt avait entre-temps été renommé côté GitHub en
+  `code-mode-bench` (sans trait d'union -- celui cité dans `../CONTEXTE.md` et dans la demande
+  initiale de Samir, qui était donc correcte) ; GitHub redirige automatiquement l'ancien nom.
+  Lien final corrigé vers `code-mode-bench` (sans trait d'union) ; remote local `vm`/`github`
+  pas renommé (le redirect suffit, changer l'URL du remote a été refusé par le classeur de
+  permissions de Claude Code -- changement cosmétique sans impact, laissé tel quel sauf si Samir
+  le souhaite). Lien vers l'article 1 (déjà publié) ajouté dans le TL;DR. Nombre d'essais corrigé
+  (280 -> 300, oubli lors de l'ajout de `T4p`).
 
 ## Commandes utiles
 

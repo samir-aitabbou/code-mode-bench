@@ -164,7 +164,7 @@ Full discussion: [`REPORT.md`](REPORT.md) §7.
   author = {Ait-Abbou, Samir},
   title  = {code-mode-bench: Code Mode vs classic MCP tool-calling, measured on local LLMs},
   year   = {2026},
-  url    = {https://github.com/samir-aitabbou/code-mode-bench-}
+  url    = {https://github.com/samir-aitabbou/code-mode-bench}
 }
 ```
 
