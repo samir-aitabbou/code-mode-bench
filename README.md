@@ -84,7 +84,7 @@ Full table (all 6 tasks x 2 modes x 2 models x 2 tool-count variants) and all 7 
 Per-trial data (300 trials) and an analysis notebook are also published on Kaggle:
 [Code Mode vs Classic MCP: 300 Agent Trials](https://www.kaggle.com/datasets/samiraitabbou/code-mode-vs-classic-mcp-300-agent-trials)
 (dataset) and
-[Code Mode vs Classic MCP: 300 Agent Trials Analyze](https://www.kaggle.com/code/samiraitabbou/code-mode-vs-classic-mcp-300-agent-trials-analyze)
+[Code Mode vs MCP: 300 Agent Trials Analyzed](https://www.kaggle.com/code/samiraitabbou/code-mode-vs-classic-mcp-300-agent-trials-analyze)
 (analysis notebook).
 
 ![Success rate per task and condition](results/figures/03_success_rate_by_task.png)
